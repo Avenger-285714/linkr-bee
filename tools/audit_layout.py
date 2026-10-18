@@ -40,6 +40,19 @@ VIEWPORTS = [
     ("landscape", 844, 390),
 ]
 
+# Not every state is meaningful at every size. The drawer matters wherever it
+# overlays content, connected/keyboard only on phones.
+STATES = {
+    "desktop": ["closed"],
+    "laptop": ["closed"],
+    "tablet-l": ["closed"],
+    "tablet-p": ["closed", "drawer"],
+    "phone-xl": ["closed", "drawer"],
+    "phone": ["closed", "drawer", "connected", "keyboard"],
+    "phone-s": ["closed", "drawer"],
+    "landscape": ["closed", "drawer"],
+}
+
 # The tool must talk to localhost directly; the agent environment injects a
 # proxy that would answer 502 for 127.0.0.1.
 ENV = {k: v for k, v in os.environ.items() if "proxy" not in k.lower()}
@@ -52,10 +65,10 @@ def rect(spec):
     return int(w), int(h), int(x), int(y)
 
 
-def measure(name, w, h):
+def measure(name, w, h, state="closed"):
     out = subprocess.run(
-        ["swift", str(TOOL), f"{URL}?audit={name}", f"/tmp/audit-{name}.png",
-         str(w), str(h), "dark", "closed"],
+        ["swift", str(TOOL), f"{URL}?audit={name}-{state}", f"/tmp/audit-{name}-{state}.png",
+         str(w), str(h), "dark", state],
         capture_output=True, text=True, env=ENV, timeout=90,
     ).stdout
     line = next((l for l in out.splitlines() if l.startswith("layout:")), None)
@@ -64,10 +77,10 @@ def measure(name, w, h):
     return json.loads(line[len("layout: "):])
 
 
-def audit(d):
+def audit(d, state):
     vw = d["vw"]
     sw, sh, _, _ = rect(d["shell"])
-    ww, _, wx, _ = rect(d["work"])
+    ww, _, wx, wy = rect(d["work"])
     cw, _, cx, _ = rect(d["ctl"])
     pad = float(d["padR"].replace("px", ""))
 
@@ -84,30 +97,50 @@ def audit(d):
                        cx >= 0 and cx + cw <= wx + 1,
                        f"{cx}+{cw} work@{wx}"))
     checks.append(("no vscroll", d["bodyH"] <= d["vh"] + 1, f"{d['bodyH']}/{d['vh']}"))
+
+    if state == "drawer":
+        checks = [c for c in checks if c[0] != "drawer off screen"]
+        checks.append(("drawer in view", cx >= 0 and cx + cw <= vw + 1, f"{cx}+{cw}"))
+        checks.append(("drawer width sane", cw <= 341, f"{cw}px"))
+        sw_, cw_ = (d["ctlOverflowX"].split("/") + ["0"])[:2]
+        checks.append(("drawer no h-overflow", sw_ == cw_, f"{sw_}/{cw_}"))
+    elif state == "connected":
+        checks.append(("empty state hidden", d["emptyShown"] == "none", d["emptyShown"]))
+    elif state == "keyboard":
+        # The shell deliberately shrinks to the space above the keyboard, so the
+        # "fills the viewport" and "no scroll" checks do not apply here.
+        checks = [c for c in checks if c[0] not in ("shell==viewport", "no vscroll")]
+        checks.append(("shell fits visible area", sh <= d["vh"], f"{sh}<={d['vh']}"))
+        checks.append(("chrome collapsed", wy <= 10, f"work.top={wy}"))
+
     return checks
 
 
 def main():
     failures = []
-    print(f"{'viewport':12} {'size':11} {'':6} detail")
+    print(f"{'viewport':12} {'size':11} {'state':10} {'':6} detail")
+    total = 0
     for name, w, h in VIEWPORTS:
-        d = measure(name, w, h)
-        if d is None:
-            failures.append(name)
-            print(f"{name:12} {w}x{h:<7} FAIL   no layout output")
-            continue
-        checks = audit(d)
-        bad = [c for c in checks if not c[1]]
-        detail = "; ".join(f"{c[0]}: {c[2]}" for c in bad) or "-"
-        print(f"{name:12} {w}x{h:<7} {'FAIL' if bad else 'PASS':6} {detail}")
-        if bad:
-            failures.append(name)
+        for state in STATES[name]:
+            total += 1
+            d = measure(name, w, h, state)
+            tag = f"{name}/{state}"
+            if d is None:
+                failures.append(tag)
+                print(f"{name:12} {w}x{h:<7} {state:10} FAIL   no layout output")
+                continue
+            checks = audit(d, state)
+            bad = [c for c in checks if not c[1]]
+            detail = "; ".join(f"{c[0]}: {c[2]}" for c in bad) or "-"
+            print(f"{name:12} {w}x{h:<7} {state:10} {'FAIL' if bad else 'PASS':6} {detail}")
+            if bad:
+                failures.append(tag)
 
     print()
     if failures:
-        print("FAILING:", ", ".join(failures))
+        print(f"{len(failures)}/{total} FAILING:", ", ".join(failures))
         return 1
-    print("ALL PASS")
+    print(f"ALL PASS ({total} checks)")
     return 0
 
 

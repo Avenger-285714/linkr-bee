@@ -59,11 +59,13 @@ final class Shooter: NSObject, WKNavigationDelegate {
     // global and fails to compile, and init parameters are out of scope there.
     let themeName: String
     let panelState: String
+    let stateScript: String
 
     init(url: URL, width: CGFloat, height: CGFloat, outPath: String, theme: String, panel: String) {
         self.outPath = outPath
         self.themeName = theme
         self.panelState = panel
+        self.stateScript = Shooter.fixture(for: panel)
         super.init()
         let config = WKWebViewConfiguration()
         // A persistent store kept serving the previous stylesheet, which made
@@ -87,6 +89,36 @@ final class Shooter: NSObject, WKNavigationDelegate {
         web.load(request)
     }
 
+
+    static func fixture(for state: String) -> String {
+        switch state {
+        case "drawer":
+            // Kill the transform transition first: this process never drives
+            // animation frames, so a transition would pin the rect at its start
+            // value and every drawer assertion would read the closed geometry.
+            return """
+            var c = document.querySelector('.controls');
+            if (c) c.style.transition = 'none';
+            document.querySelector('.app-shell')?.classList.add('sidebar-open');
+            """
+        case "keyboard":
+            return """
+            document.documentElement.classList.add('soft-keyboard-open');
+            document.documentElement.style.setProperty('--terminal-viewport-height', Math.round(innerHeight * 0.55) + 'px');
+            """
+        case "connected":
+            return """
+            document.querySelector('.terminal-output')?.classList.add('connected');
+            var h = document.getElementById('terminalInputHint');
+            if (h) h.textContent = 'Modifiers apply once';
+            """
+        case "drawer+connected":
+            return Shooter.fixture(for: "drawer") + Shooter.fixture(for: "connected")
+        default:
+            return ""
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // WKWebView caches sub-resources far harder than the top document, and
         // neither a non-persistent store nor URLCache eviction defeated it. Re-request
@@ -103,10 +135,13 @@ final class Shooter: NSObject, WKNavigationDelegate {
             "document.documentElement.setAttribute('data-theme','\(themeName)');"
         )
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-            let openDrawer = (self.panelState == "open") ? "true" : "false"
+            // `panelState` doubles as the state fixture for audits: the DOM is
+            // forced into the state under test instead of clicking through to it,
+            // because clicks are not repainted in this process. Rects are still
+            // correct after a mutation, so layout assertions remain valid.
             webView.evaluateJavaScript(
                 "document.documentElement.setAttribute('data-theme','\(self.themeName)');"
-                + "if (\(openDrawer)) document.querySelector('#panelToggle')?.click();"
+                + self.stateScript
             ) { _, error in
                 if let error { print("set failed: \(error)") }
             }
@@ -136,7 +171,16 @@ final class Shooter: NSObject, WKNavigationDelegate {
                 ctlVis: cs2('.controls', 'visibility'),
                 ctlPos: cs2('.controls', 'position'),
                 ctlW: cs2('.controls', 'width'),
-                bodyH: document.body.scrollHeight
+                bodyH: document.body.scrollHeight,
+                shellClass: (document.querySelector('.app-shell') || {}).className || '',
+                emptyShown: (function () {
+                  var e = document.querySelector('.terminal-empty');
+                  return e ? getComputedStyle(e).display : 'missing';
+                })(),
+                ctlOverflowX: (function () {
+                  var e = document.querySelector('.controls');
+                  return e ? (e.scrollWidth + '/' + e.clientWidth) : 'missing';
+                })()
               });
             })()
             """) { value, _ in print("layout: \(value ?? "nil")") }
