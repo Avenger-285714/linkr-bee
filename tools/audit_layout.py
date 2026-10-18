@@ -104,7 +104,12 @@ def audit(d, state):
         checks.append(("drawer width sane", cw <= 341, f"{cw}px"))
         sw_, cw_ = (d["ctlOverflowX"].split("/") + ["0"])[:2]
         checks.append(("drawer no h-overflow", sw_ == cw_, f"{sw_}/{cw_}"))
-    elif state == "connected":
+    if vw <= 520 and state != "keyboard":
+        counts, detail = (d["touchTargets"].split("|", 1) + [""])[:2]
+        tiny, main = (counts.split("/") + ["0", "0"])[:2]
+        checks.append(("no target < 38", tiny == "0", detail or f"{tiny} tiny"))
+        checks.append(("buttons >= 44", main == "0", detail or f"{main} under"))
+    if state == "connected":
         checks.append(("empty state hidden", d["emptyShown"] == "none", d["emptyShown"]))
     elif state == "keyboard":
         # The shell deliberately shrinks to the space above the keyboard, so the

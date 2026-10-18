@@ -1171,6 +1171,28 @@ button,
     display: none;
   }
 
+  /* Fingers are not cursors. Measured at 390 px, fourteen controls came out
+   * under 44 px tall: tabs at 30, mode switches at 30, panel buttons at 36 and
+   * the topbar toggle at 40. Lift them to the usual 44 px target; the drawer
+   * already scrolls, so the extra height costs nothing but a swipe. */
+  .settings-tab,
+  .ts-btn {
+    min-height: 38px;
+  }
+
+  .controls .btn {
+    min-height: 44px;
+  }
+
+  .top-actions .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .term-tools .term-tool {
+    min-width: 40px;
+  }
+
   .terminal-empty {
     gap: 10px;
     padding: 20px;

@@ -177,6 +177,26 @@ final class Shooter: NSObject, WKNavigationDelegate {
                   var e = document.querySelector('.terminal-empty');
                   return e ? getComputedStyle(e).display : 'missing';
                 })(),
+                touchTargets: (function () {
+                  // 44 px is the target for a standalone button; segmented
+                  // controls and tabs are allowed 38, which is what iOS itself
+                  // uses for a segmented control.
+                  var small = [], main = [];
+                  var nodes = document.querySelectorAll('button, .preset-chip, .rail-btn');
+                  for (var i = 0; i < nodes.length; i++) {
+                    var b = nodes[i];
+                    if (b.hidden || b.disabled) continue;
+                    var r = b.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) continue;
+                    var id = b.id || (b.className || '').split(' ')[0] || b.textContent.trim().slice(0, 10);
+                    var tag = id + ':' + Math.round(r.width) + 'x' + Math.round(r.height);
+                    if (r.width < 38 || r.height < 38) small.push(tag);
+                    else if ((b.classList.contains('btn') || b.classList.contains('icon-btn')) &&
+                             (r.width < 44 || r.height < 44)) main.push(tag);
+                  }
+                  return small.length + '/' + main.length + '|' +
+                         small.concat(main).slice(0, 12).join(', ');
+                })(),
                 ctlOverflowX: (function () {
                   var e = document.querySelector('.controls');
                   return e ? (e.scrollWidth + '/' + e.clientWidth) : 'missing';
