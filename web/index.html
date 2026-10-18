@@ -4,12 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Linkr Bee Terminal</title>
-    <meta name="theme-color" id="themeColorMeta" content="#090d14" />
+    <meta name="theme-color" id="themeColorMeta" content="#05080D" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="stylesheet" href="./vendor/xterm/xterm.css" />
     <link rel="stylesheet" href="./style.css?v=20260928-connect-entry" />
     <link rel="stylesheet" href="./window.css?v=20260906-agent-sidebar-2" />
-    <link rel="stylesheet" href="./skin-v2.css?v=20261018-logo" />
+    <link rel="stylesheet" href="./skin-v2.css?v=20261018-phone4" />
   </head>
   <body>
     <main class="app-shell">
@@ -457,7 +457,17 @@
             aria-label="Interactive serial terminal"
             data-i18n-aria="terminalAria"
             aria-describedby="terminalInputHint"
-          >          </div>
+          >
+            <div class="terminal-empty">
+              <svg class="te-mark" viewBox="30 30 452 452" aria-hidden="true">
+                <path d="M256 76 L412 166 L412 346 L256 436 L100 346 L100 166 Z" fill="none" stroke="currentColor" stroke-width="30" stroke-linejoin="round" />
+                <path d="M180 210 L270 256 L180 302" fill="none" stroke="currentColor" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+                <rect x="306" y="214" width="36" height="84" rx="7" fill="currentColor" />
+              </svg>
+              <p class="te-title" data-i18n="emptyTitle">No device yet</p>
+              <p class="te-hint" data-i18n="emptyHint">Tap Connect to scan for a nearby Linkr Bee</p>
+            </div>
+          </div>
           <p id="bootNotice" class="boot-notice" role="status" hidden>
             <span id="bootNoticeText"></span>
             <button id="bootNoticeReload" class="btn" type="button"></button>

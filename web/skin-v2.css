@@ -575,7 +575,7 @@ h1 {
 /* Single-row accessory strip. Everything scrolls except Ctrl-C, which stays
  * pinned at the thumb edge because it is the one key pressed blind. */
 .terminal-card .terminal-input-bar {
-  gap: 6px;
+  gap: 10px;
   padding: 8px 10px 9px;
   border-top: 1px solid var(--line-soft);
   background: rgba(255, 255, 255, 0.024);
@@ -608,12 +608,14 @@ h1 {
   min-width: 0;
   align-items: center;
   gap: 6px;
-  padding: 2px 0 5px;
+  padding: 2px 8px 5px 0;
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  -webkit-mask-image: linear-gradient(90deg, #000 96%, transparent 100%);
-  mask-image: linear-gradient(90deg, #000 96%, transparent 100%);
+  /* A half-visible key at the right edge is the scroll affordance itself; the
+   * hairline tells it apart from the pinned Ctrl-C. (A mask-image fade was
+   * tried first and is ignored by WKWebView.) */
+  border-right: 1px solid var(--line-soft);
 }
 
 .terminal-key-scroll::-webkit-scrollbar {
@@ -698,17 +700,17 @@ h1 {
   height: 30px;
   min-height: 30px;
   border-color: transparent;
-  background: linear-gradient(180deg, #f6b57f, #e29555);
+  background: var(--tx);
   box-shadow:
-    0 8px 18px -10px rgba(240, 168, 104, 0.9),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    0 8px 18px -12px var(--tx),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
   color: #241505;
   font-weight: 500;
 }
 
 #breakButton:hover:not(:disabled) {
   border-color: transparent;
-  background: linear-gradient(180deg, #fbc08d, #e79d5e);
+  filter: brightness(1.08);
   color: #241505;
 }
 
@@ -986,6 +988,246 @@ h1 {
 
   html[data-theme="light"].settings-drawer-layout .controls.window-surface {
     background: rgba(255, 255, 255, 0.98);
+  }
+}
+
+/* ---------- Empty terminal ---------- */
+
+/* Before the first connection the canvas is a black field with nothing on it,
+ * which on a phone is most of the screen. This fills it and disappears the
+ * instant .connected lands on the container (app.js already toggles it). */
+.terminal-output {
+  position: relative;
+}
+
+.terminal-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.terminal-output.connected .terminal-empty {
+  display: none;
+}
+
+.te-mark {
+  width: 54px;
+  height: 54px;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.te-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.te-hint {
+  margin: 0;
+  max-width: 260px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--placeholder);
+}
+
+/* ---------- Touch ---------- */
+
+/* WebView defaults that make a native shell feel like a web page: the grey
+ * flash on tap, the rubber-band bounce, double-tap zoom and, worst of all,
+ * the long-press selection handles landing on a keyboard key. */
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+button,
+.rail-btn,
+.preset-chip,
+.terminal-key,
+.settings-tab,
+.btn {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Output stays selectable: copying a boot log is half the point. */
+.terminal-output,
+.terminal-output .xterm,
+.xterm-viewport {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The strip is a horizontal surface. Without this the browser claims the
+ * swipe as a page pan and the keys never move under the finger. */
+.terminal-key-scroll,
+.terminal-card .presets {
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* iOS zooms the page when a focused field is under 16px. xterm focuses a
+ * hidden textarea on every keystroke, so the whole terminal would drift under
+ * the user's thumb the moment they start typing. */
+.xterm .xterm-helper-textarea {
+  font-size: 16px;
+}
+
+@media (max-width: 900px) {
+  .controls input,
+  .controls textarea,
+  .controls select {
+    font-size: 16px;
+  }
+}
+
+/* ---------- Phones ---------- */
+
+/* At 390 px the desktop toolbar is what breaks first: five topbar controls
+ * plus a six-button terminal header leave the title 60 px wide and the
+ * terminal itself empty of context. */
+@media (max-width: 520px) {
+  /* The pill's word ("Disconnected") repeats what the Connect button already
+   * says and costs the title half its width. Keep the dot; keep the device
+   * name once one is chosen. */
+  .status-pill {
+    min-width: 26px;
+    justify-content: center;
+    padding: 5px 6px;
+  }
+
+  #statusText {
+    display: none;
+  }
+
+  .top-actions .mobile-connect {
+    min-width: 84px;
+    padding: 0 12px;
+  }
+
+  .brand h1 {
+    font-size: 13.5px;
+  }
+
+  /* Quick commands duplicate what typing does, and on a 375 px screen they
+   * cost the key strip a full row. */
+  .terminal-card .presets {
+    display: none;
+  }
+
+  /* The empty state already explains the state; this sentence would be the
+   * third one saying the same thing. */
+  .terminal-input-hint {
+    display: none;
+  }
+
+  /* Six tools is a desktop toolbar. Keep the two a thumb actually reaches. */
+  .term-tools #autoscrollBtn,
+  .term-tools #copyBtn,
+  .term-tools .term-hint {
+    display: none;
+  }
+
+  .terminal-card .term-tool {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 8px;
+  }
+
+  /* 44 px is the smallest target that does not need aiming. */
+  .terminal-card .terminal-key,
+  .terminal-card .terminal-keyboard {
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 12.5px;
+  }
+
+  /* Slightly narrower than desktop so the strip keeps one more key in view. */
+  #breakButton {
+    min-width: 56px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  /* Repeats the dot in the topbar on the same screen. */
+  .statusbar .sb-state {
+    display: none;
+  }
+
+  .terminal-empty {
+    gap: 10px;
+    padding: 20px;
+  }
+
+  .te-mark {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+/* ---------- Landscape phones ---------- */
+
+/* 844x390 is wider than the phone breakpoint but only 390 tall, so the width
+ * queries treat it as a tablet while there is no vertical room at all. Reclaim
+ * the chrome height instead of the width. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .topbar {
+    padding: 6px 12px;
+  }
+
+  .support-text {
+    display: none;
+  }
+
+  .brand h1 {
+    font-size: 13px;
+  }
+
+  .terminal-head {
+    min-height: 34px;
+    padding-block: 4px;
+  }
+
+  .terminal-card .terminal-key,
+  .terminal-card .terminal-keyboard {
+    height: 38px;
+    min-height: 38px;
+  }
+
+  #breakButton {
+    height: 38px;
+    min-height: 38px;
+  }
+
+  .statusbar {
+    padding: 2px 6px;
+  }
+
+  /* The empty state needs less air than it can afford in portrait. */
+  .terminal-empty {
+    gap: 8px;
+  }
+
+  .te-mark {
+    width: 40px;
+    height: 40px;
   }
 }
 
