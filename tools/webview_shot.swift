@@ -197,6 +197,18 @@ final class Shooter: NSObject, WKNavigationDelegate {
                   return small.length + '/' + main.length + '|' +
                          small.concat(main).slice(0, 12).join(', ');
                 })(),
+                clippedText: (function () {
+                  var out = [];
+                  var nodes = document.querySelectorAll(
+                    '.controls .btn-label, .controls .card-title span, .settings-tab, .term-title, .statusbar .sb-item, .preset-chip');
+                  for (var i = 0; i < nodes.length; i++) {
+                    var e = nodes[i];
+                    if (e.scrollWidth > e.clientWidth + 1) {
+                      out.push((e.className || e.tagName) + ':' + e.scrollWidth + '/' + e.clientWidth);
+                    }
+                  }
+                  return out.length + '|' + out.slice(0, 8).join(', ');
+                })(),
                 ctlOverflowX: (function () {
                   var e = document.querySelector('.controls');
                   return e ? (e.scrollWidth + '/' + e.clientWidth) : 'missing';
