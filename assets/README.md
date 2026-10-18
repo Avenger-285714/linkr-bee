@@ -15,6 +15,14 @@
 Web assets live with the app: `web/favicon.svg` is the same artwork on a
 rounded tile, and the topbar inlines the mark so it inherits `currentColor`.
 
+## proposals/
+
+Fourteen files, not referenced by the app: the four initial directions
+(`01-hive-node` … `04-comb-trio`, amber) and the three merged variants
+(`a-hex-terminal` … `c-hex-negative`, green) that `app-icon.svg` was chosen
+from. `a-hex-terminal` is the shipped direction — the production files one
+level up are its final tuning, on a tighter view box.
+
 ## Brand colors
 
 - Hive green: `#3FC88A` — dark theme accent, `--accent` in `web/skin-v2.css`
