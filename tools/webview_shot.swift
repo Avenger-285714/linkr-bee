@@ -163,6 +163,8 @@ final class Shooter: NSObject, WKNavigationDelegate {
               var cs = sh ? getComputedStyle(sh) : {};
               return JSON.stringify({
                 vw: innerWidth, vh: innerHeight,
+                theme: document.documentElement.getAttribute('data-theme'),
+                bgVar: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
                 shell: r('.app-shell'),
                 padL: cs.paddingLeft, padR: cs.paddingRight, padT: cs.paddingTop,
                 cols: cs.gridTemplateColumns,
@@ -196,6 +198,60 @@ final class Shooter: NSObject, WKNavigationDelegate {
                   }
                   return small.length + '/' + main.length + '|' +
                          small.concat(main).slice(0, 12).join(', ');
+                })(),
+                contrast: (function () {
+                  var parse = function (c) {
+                    var i = c.indexOf('('), j = c.indexOf(')');
+                    if (i < 0 || j < 0) return null;
+                    var p = c.slice(i + 1, j).split(',').map(Number);
+                    return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+                  };
+                  var bgOf = function (el) {
+                    var e = el;
+                    while (e && e !== document.documentElement) {
+                      var c = parse(getComputedStyle(e).backgroundColor);
+                      if (c && c.a > 0.55) return c;
+                      e = e.parentElement;
+                    }
+                    // Fall back to the real body colour; a hardcoded dark value
+                    // silently passed in dark mode and reported nonsense in light.
+                    var body = parse(getComputedStyle(document.body).backgroundColor);
+                    return body && body.a > 0.05 ? body : { r: 5, g: 8, b: 13, a: 1 };
+                  };
+                  var lum = function (c) {
+                    var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+                    return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+                  };
+                  var ratio = function (a, b) {
+                    var la = lum(a), lb = lum(b);
+                    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+                  };
+                  // :last-child matters — the first span inside these headings is
+                  // the coloured dot, which is deliberately near the background.
+                  var sels = ['.te-title', '.te-hint', '.term-title span:last-child',
+                              '.statusbar .sb-item', '.settings-tab', '.btn-label',
+                              '.card-title span:last-child', '.preset-chip',
+                              '.support-text', '.terminal-input-hint'];
+                  var out = [];
+                  for (var i = 0; i < sels.length; i++) {
+                    var el = document.querySelector(sels[i]);
+                    if (!el) continue;
+                    var fg = parse(getComputedStyle(el).color);
+                    if (!fg) continue;
+                    var name = sels[i].split('.').join('').split(' ').join('');
+                    var bg = bgOf(el);
+                    out.push(name + ':' + ratio(fg, bg).toFixed(1) + '[' + fg.r + ',' + fg.g + ',' + fg.b + '|' + bg.r + ',' + bg.g + ',' + bg.b + ']');
+                  }
+                  return out.join(' ');
+                })(),
+                bgChain: (function () {
+                  var out = [], e = document.querySelector('.term-title');
+                  while (e && out.length < 7) {
+                    out.push(((e.className || e.tagName) + '').split(' ')[0].slice(0, 16) +
+                             '=' + getComputedStyle(e).backgroundColor);
+                    e = e.parentElement;
+                  }
+                  return out.join(' > ');
                 })(),
                 clippedText: (function () {
                   var out = [];

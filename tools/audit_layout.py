@@ -104,6 +104,18 @@ def audit(d, state):
         checks.append(("drawer width sane", cw <= 341, f"{cw}px"))
         sw_, cw_ = (d["ctlOverflowX"].split("/") + ["0"])[:2]
         checks.append(("drawer no h-overflow", sw_ == cw_, f"{sw_}/{cw_}"))
+    if state == "closed":
+        pairs = {}
+        for chunk in d["contrast"].split():
+            if ":" in chunk:
+                name, val = chunk.rsplit(":", 1)
+                try:
+                    pairs[name] = float(val.split("[")[0])
+                except ValueError:
+                    pass
+        low = {k: v for k, v in pairs.items() if v < 4.5}
+        checks.append(("contrast >= 4.5", not low,
+                       ", ".join(f"{k.split('.')[-1]}={v}" for k, v in low.items())))
     if vw <= 520 and state != "keyboard":
         counts, detail = (d["touchTargets"].split("|", 1) + [""])[:2]
         tiny, main = (counts.split("/") + ["0", "0"])[:2]

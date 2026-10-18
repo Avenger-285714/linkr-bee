@@ -33,7 +33,7 @@
   --line: rgba(255, 255, 255, 0.09);
   --line-soft: rgba(255, 255, 255, 0.055);
   --line-strong: rgba(255, 255, 255, 0.17);
-  --placeholder: #66738a;
+  --placeholder: #7c8a9e;
 
   --accent: #3fc88a;
   --accent-strong: #5fe0a6;
@@ -83,7 +83,7 @@
   --line: rgba(15, 32, 56, 0.16);
   --line-soft: rgba(15, 32, 56, 0.1);
   --line-strong: rgba(15, 32, 56, 0.2);
-  --placeholder: #6a7a90;
+  --placeholder: #5e6e84;
 
   --accent: #1f9d64;
   --accent-strong: #157a4c;
