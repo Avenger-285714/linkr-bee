@@ -1182,6 +1182,41 @@ button,
   }
 }
 
+/* ---------- Drawer geometry ---------- */
+
+/* style.css carries two conflicting drawer rules: one anchors it left with
+ * translateX(-100%), a later one anchors it right with translateX(100%). The
+ * winner was "right-aligned, moved left by its own width", which leaves the
+ * panel parked at the left edge whenever the viewport is wider than the panel —
+ * 402 px of it on an 834 px tablet. Restate the geometry in one place: left
+ * anchored, hidden by its own width. */
+@media (max-width: 900px) {
+  /* A later rule in style.css — html.settings-drawer-layout .controls, at
+   * specificity 0,2,1 — anchors the panel to the right with translateX(+100%)
+   * and visibility:visible. It was written for the agent sidebar but matches
+   * every drawer layout, so the drawer never left the screen: on an 834 px
+   * tablet it still covered 402 px. These selectors match its specificity so
+   * the geometry is stated once, and clearly. */
+  html.settings-drawer-layout .app-shell .controls {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: auto;
+    bottom: 0;
+    width: min(86vw, 340px);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.25s ease, visibility 0s 0.25s,
+      background-color 0.25s ease, border-color 0.25s ease;
+  }
+
+  html.settings-drawer-layout .app-shell.sidebar-open .controls {
+    transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
+  }
+}
+
 /* ---------- Landscape phones ---------- */
 
 /* 844x390 is wider than the phone breakpoint but only 390 tall, so the width

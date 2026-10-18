@@ -111,7 +111,43 @@ final class Shooter: NSObject, WKNavigationDelegate {
                 if let error { print("set failed: \(error)") }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.9) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            webView.evaluateJavaScript("""
+            (function () {
+              var r = function (s) {
+                var e = document.querySelector(s);
+                if (!e) return 'missing';
+                var b = e.getBoundingClientRect();
+                return Math.round(b.width) + 'x' + Math.round(b.height) + '@' + Math.round(b.left) + ',' + Math.round(b.top);
+              };
+              var cs2 = function (sel, prop) {
+                var e = document.querySelector(sel);
+                return e ? getComputedStyle(e)[prop] : 'missing';
+              };
+              var sh = document.querySelector('.app-shell');
+              var cs = sh ? getComputedStyle(sh) : {};
+              return JSON.stringify({
+                vw: innerWidth, vh: innerHeight,
+                shell: r('.app-shell'),
+                padL: cs.paddingLeft, padR: cs.paddingRight, padT: cs.paddingTop,
+                cols: cs.gridTemplateColumns,
+                work: r('.workpanel'), ctl: r('.controls'),
+                ctlTf: cs2('.controls', 'transform'),
+                ctlVis: cs2('.controls', 'visibility'),
+                ctlPos: cs2('.controls', 'position'),
+                ctlW: cs2('.controls', 'width'),
+                bodyH: document.body.scrollHeight
+              });
+            })()
+            """) { value, _ in print("layout: \(value ?? "nil")") }
+        }
+        // Force a synchronous reflow and let fonts settle: capturing before the
+        // grid has finished resolving produced a frame with a 390px dead band on
+        // the right even though the computed layout was already correct.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.6) {
+            webView.evaluateJavaScript("void document.body.offsetHeight;") { _, _ in }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
             let snapshot = WKSnapshotConfiguration()
             // Offscreen WKWebView does not repaint on its own: without this the
             // capture returns the frame from before the theme attribute changed.
