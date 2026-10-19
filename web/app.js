@@ -331,6 +331,9 @@ const I18N = {
     settingsConnection: "Connect",
     settingsTerminal: "Serial",
     settingsNetwork: "Network",
+    // The rail's fourth section. Without this key t() falls back to the key
+    // itself, so the icon button announced (and titled) "assistant".
+    assistant: "Assistant",
     terminalSettings: "Terminal Settings",
     diagnostics: "Device Diagnostics",
     diagFirmware: "Firmware",
@@ -498,6 +501,7 @@ const I18N = {
     settingsConnection: "连接",
     settingsTerminal: "串口",
     settingsNetwork: "网络",
+    assistant: "助手",
     terminalSettings: "终端设置",
     diagnostics: "设备诊断",
     diagFirmware: "固件",

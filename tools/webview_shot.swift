@@ -96,10 +96,14 @@ final class Shooter: NSObject, WKNavigationDelegate {
             // Kill the transform transition first: this process never drives
             // animation frames, so a transition would pin the rect at its start
             // value and every drawer assertion would read the closed geometry.
+            // `sidebar-open` alone only reaches the overlay drawer (<=900 px);
+            // above that the panel is a docked column hidden by
+            // `controls-hidden`, which is what the panel toggle removes.
             return """
             var c = document.querySelector('.controls');
             if (c) c.style.transition = 'none';
             document.querySelector('.app-shell')?.classList.add('sidebar-open');
+            document.querySelector('.app-shell')?.classList.remove('controls-hidden');
             """
         case "keyboard":
             return """

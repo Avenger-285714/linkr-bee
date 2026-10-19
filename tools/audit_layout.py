@@ -41,10 +41,12 @@ VIEWPORTS = [
 ]
 
 # Not every state is meaningful at every size. The drawer matters wherever it
-# overlays content, connected/keyboard only on phones.
+# overlays content, connected/keyboard only on phones. Above 900 px the drawer
+# is a docked column that the rail collapses by default, so the open state is
+# measured there too — that is the rail layout's primary interaction.
 STATES = {
-    "desktop": ["closed"],
-    "laptop": ["closed"],
+    "desktop": ["closed", "drawer"],
+    "laptop": ["closed", "drawer"],
     "tablet-l": ["closed"],
     "tablet-p": ["closed", "drawer"],
     "phone-xl": ["closed", "drawer"],
@@ -93,15 +95,28 @@ def audit(d, state):
                        cx + cw <= 0 or d["ctlVis"] == "hidden",
                        f"{cx}+{cw} vis={d['ctlVis']}"))
     else:
-        checks.append(("drawer docked",
+        # A bounds check, not a docking check: above 900 px the rail layout
+        # legitimately collapses the panel to nothing, so all the closed state
+        # can assert is that whatever the panel is, it sits inside the frame.
+        # The open drawer is measured in the drawer state below.
+        checks.append(("drawer within bounds",
                        cx >= 0 and cx + cw <= wx + 1,
                        f"{cx}+{cw} work@{wx}"))
     checks.append(("no vscroll", d["bodyH"] <= d["vh"] + 1, f"{d['bodyH']}/{d['vh']}"))
 
     if state == "drawer":
         checks = [c for c in checks if c[0] != "drawer off screen"]
+        # "Somewhere on screen" is satisfied by a collapsed 2 px panel parked at
+        # its docked x, which would report this state as fine without measuring
+        # it at all. Require it to be open.
+        checks.append(("drawer open",
+                       d["ctlVis"] == "visible" and cw >= 200,
+                       f"vis={d['ctlVis']} w={cw}"))
         checks.append(("drawer in view", cx >= 0 and cx + cw <= vw + 1, f"{cx}+{cw}"))
-        checks.append(("drawer width sane", cw <= 341, f"{cw}px"))
+        # 341 px caps the overlay drawer. A docked drawer is a grid column and
+        # is allowed to be wider (348 px at 1024).
+        if vw <= 900:
+            checks.append(("drawer width sane", cw <= 341, f"{cw}px"))
         sw_, cw_ = (d["ctlOverflowX"].split("/") + ["0"])[:2]
         checks.append(("drawer no h-overflow", sw_ == cw_, f"{sw_}/{cw_}"))
     if state == "closed":
@@ -117,6 +132,10 @@ def audit(d, state):
         checks.append(("contrast >= 4.5", not low,
                        ", ".join(f"{k.split('.')[-1]}={v}" for k, v in low.items())))
     if vw <= 520 and state != "keyboard":
+        # This is the narrow-window half of the touch-target rule. The CSS also
+        # raises targets under `(pointer: coarse)`, which a WKWebView on this
+        # host always reports as fine — so a phone in landscape (844 px wide,
+        # no pointer) is only covered by that arm, on hardware, not here.
         counts, detail = (d["touchTargets"].split("|", 1) + [""])[:2]
         tiny, main = (counts.split("/") + ["0", "0"])[:2]
         checks.append(("no target < 38", tiny == "0", detail or f"{tiny} tiny"))
