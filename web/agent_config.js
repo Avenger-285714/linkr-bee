@@ -66,6 +66,70 @@ export const AGENT_PROVIDERS = [
     hint: ["适用于提供 generateContent 的服务，例如 https://generativelanguage.googleapis.com/v1beta", "For services exposing generateContent, such as https://generativelanguage.googleapis.com/v1beta"] },
 ];
 
+/* Vendors sit on top of the protocol list above: choosing one fills the base
+ * URL, the protocol and a starting model, and every field stays editable. Model
+ * ids move, so the suggestion is a starting point, not a contract — the record
+ * stores whatever the user saves. Custom is first because it is the only entry
+ * that promises nothing about the endpoint.
+ *
+ * No new stored field: the vendor is inferred from the endpoint (below), so a
+ * record written before this list existed still shows the right vendor when its
+ * endpoint matches one, and Custom otherwise. */
+export const AGENT_VENDOR_CUSTOM = "custom";
+
+export const AGENT_VENDORS = [
+  { id: AGENT_VENDOR_CUSTOM, label: ["自定义", "Custom"],
+    hint: ["手动填写 API 地址、接口协议和模型名称。", "Enter the API base URL, protocol and model yourself."] },
+  { id: "openai", label: ["OpenAI", "OpenAI"], endpoint: "https://api.openai.com/v1",
+    protocol: "openai-completions", model: "gpt-4.1-mini" },
+  { id: "anthropic", label: ["Anthropic Claude", "Anthropic Claude"], endpoint: "https://api.anthropic.com/v1",
+    protocol: "anthropic-messages", model: "claude-sonnet-4-5",
+    /* The browser calls the Messages API directly; without this header Anthropic
+     * answers 401/403 to a cross-origin browser request. */
+    headers: { "anthropic-dangerous-direct-browser-access": "true" } },
+  { id: "google", label: ["Google Gemini", "Google Gemini"], endpoint: "https://generativelanguage.googleapis.com/v1beta",
+    protocol: "google-generative-ai", model: "gemini-2.5-flash" },
+  { id: "deepseek", label: ["DeepSeek 深度求索", "DeepSeek"], endpoint: "https://api.deepseek.com/v1",
+    protocol: "openai-completions", model: "deepseek-chat" },
+  { id: "moonshot", label: ["Moonshot Kimi", "Moonshot Kimi"], endpoint: "https://api.moonshot.cn/v1",
+    protocol: "openai-completions", model: "kimi-k2-0905-preview" },
+  { id: "zhipu", label: ["智谱 GLM", "Zhipu GLM"], endpoint: "https://open.bigmodel.cn/api/paas/v4",
+    protocol: "openai-completions", model: "glm-4.6" },
+  { id: "dashscope", label: ["阿里云百炼（通义千问）", "Alibaba Cloud Bailian (Qwen)"],
+    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    protocol: "openai-completions", model: "qwen-plus" },
+  { id: "siliconflow", label: ["硅基流动", "SiliconFlow"], endpoint: "https://api.siliconflow.cn/v1",
+    protocol: "openai-completions", model: "deepseek-ai/DeepSeek-V3" },
+  { id: "volces", label: ["火山方舟（豆包）", "Volcengine Ark (Doubao)"],
+    endpoint: "https://ark.cn-beijing.volces.com/api/v3",
+    protocol: "openai-completions", model: "doubao-seed-1-6-250615" },
+  { id: "groq", label: ["Groq", "Groq"], endpoint: "https://api.groq.com/openai/v1",
+    protocol: "openai-completions", model: "llama-3.3-70b-versatile" },
+  { id: "openrouter", label: ["OpenRouter", "OpenRouter"], endpoint: "https://openrouter.ai/api/v1",
+    protocol: "openai-completions", model: "openai/gpt-4.1-mini" },
+  { id: "mistral", label: ["Mistral", "Mistral"], endpoint: "https://api.mistral.ai/v1",
+    protocol: "openai-completions", model: "mistral-small-latest" },
+  { id: "xai", label: ["xAI Grok", "xAI Grok"], endpoint: "https://api.x.ai/v1",
+    protocol: "openai-completions", model: "grok-2-latest" },
+  { id: "ollama", label: ["Ollama（本机）", "Ollama (local)"], endpoint: "http://localhost:11434/v1",
+    protocol: "openai-completions", model: "llama3.2" },
+];
+
+export function vendorById(id) {
+  return AGENT_VENDORS.find((entry) => entry.id === id) ?? null;
+}
+
+/* Which vendor an endpoint belongs to, for a form that must show the selection
+ * it saved. Normalised exactly the way validateAgentConfig stores it, so the
+ * round-trip cannot disagree with itself. */
+export function vendorForEndpoint(endpoint) {
+  let url;
+  try { url = new URL(String(endpoint ?? "")); } catch { return AGENT_VENDOR_CUSTOM; }
+  const normalized = url.href.replace(/\/$/, "");
+  const match = AGENT_VENDORS.find((entry) => entry.endpoint?.replace(/\/$/, "") === normalized);
+  return match?.id ?? AGENT_VENDOR_CUSTOM;
+}
+
 // Ascending thinking budget. "off" leaves reasoning options out of the request.
 export const AGENT_REASONING_LEVELS = ["off", "low", "medium", "high"];
 

@@ -1082,6 +1082,32 @@ h1 {
   }
 }
 
+/* ---------- AI settings: stored-key disclosure ---------- */
+
+/* The key is written to local storage in plaintext, so the card says where it
+ * goes and what can read it, next to the field rather than in a footer. */
+.agent-settings .key-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0 2px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.agent-settings .key-note-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--accent-strong);
+}
+
 /* ---------- Empty terminal ---------- */
 
 /* Before the first connection the canvas is a black field with nothing on it,

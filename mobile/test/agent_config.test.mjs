@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { AGENT_CONFIG_KEY, AGENT_DEFAULT_MAX_TOKENS, AGENT_FIXED_CONTEXT_TOKENS, AGENT_PROVIDERS, AGENT_REASONING_LEVELS, isContextWindowTight, loadAgentConfig, minimumUsefulContextWindow, saveAgentConfig, clearAgentConfig, endpointSecurity, isEndpointUnreachable, parseAgentHeaders, formatAgentHeaders, validateAgentConfig } from "../../web/agent_config.js";
+import { AGENT_CONFIG_KEY, AGENT_DEFAULT_MAX_TOKENS, AGENT_FIXED_CONTEXT_TOKENS, AGENT_PROVIDERS, AGENT_REASONING_LEVELS, AGENT_VENDOR_CUSTOM, AGENT_VENDORS, isContextWindowTight, loadAgentConfig, minimumUsefulContextWindow, saveAgentConfig, clearAgentConfig, endpointSecurity, isEndpointUnreachable, parseAgentHeaders, formatAgentHeaders, validateAgentConfig, vendorById, vendorForEndpoint } from "../../web/agent_config.js";
 
 function storage() {
   const values = new Map();
@@ -232,4 +232,50 @@ test("the settings form keeps the context-window hint, its placeholders and its 
   const html = readFileSync(new URL("../../web/index.html", import.meta.url), "utf8");
   assert.match(html, /id="agentContextWindowHint"[^>]*data-ai-setting="contextWindowHint"/,
     "the context-window hint must select its own label instead of the shared limits hint");
+});
+
+/* A preset that does not validate is a vendor nobody can save, and one that is
+ * not inferred back from its endpoint leaves a saved configuration showing
+ * Custom in the form. Both are asserted for every entry, so adding a provider
+ * cannot skip the checks. */
+test("every provider preset validates and is inferred back from its endpoint", () => {
+  assert.ok(AGENT_VENDORS.length > 1);
+  assert.equal(AGENT_VENDORS[0].id, AGENT_VENDOR_CUSTOM, "Custom is first, so a blank form selects it");
+  for (const vendor of AGENT_VENDORS) {
+    assert.ok(vendor.label?.[0] && vendor.label?.[1], `${vendor.id} has both labels`);
+    if (vendor.id === AGENT_VENDOR_CUSTOM) continue;
+    const saved = validateAgentConfig({ endpoint: vendor.endpoint, model: vendor.model,
+      provider: vendor.protocol, headers: vendor.headers || {} });
+    assert.equal(vendorForEndpoint(saved.endpoint), vendor.id, `${vendor.id} is not inferred from its endpoint`);
+    assert.equal(vendorById(vendor.id)?.endpoint, saved.endpoint, `${vendor.id} round-trips through vendorById`);
+  }
+});
+
+test("an endpoint no preset owns is Custom, including empty and invalid ones", () => {
+  for (const endpoint of ["https://proxy.example.com/v1", "", "not a url", undefined, null]) {
+    assert.equal(vendorForEndpoint(endpoint), AGENT_VENDOR_CUSTOM, String(endpoint));
+  }
+  assert.equal(vendorForEndpoint("https://api.deepseek.com/v1/"), "deepseek", "trailing slash is normalised");
+});
+
+/* The disclosure is the feature, not decoration: it must name the storage key
+ * the app actually writes and say the key is not uploaded. A label that drifts
+ * from AGENT_CONFIG_KEY or drops the promise would still render. */
+test("the form offers a provider list and states where the key is stored", () => {
+  const settings = readFileSync(new URL("../../web/agent_settings.js", import.meta.url), "utf8");
+  for (const key of ["vendor", "vendorHint", "keyStorage"]) {
+    const entry = settings.match(new RegExp(`\\b${key}:\\s*\\[\\s*"([^"]*)"\\s*,\\s*"([^"]*)"\\s*\\]`));
+    assert.ok(entry, `${key} is missing from web/agent_settings.js`);
+    assert.match(entry[1], /[\u4e00-\u9fff]/, `${key} zh`);
+    assert.ok(entry[2].trim(), `${key} en`);
+  }
+  const disclosure = settings.match(/keyStorage:\s*\[\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\]/);
+  for (const [lang, label] of [["zh", disclosure[1]], ["en", disclosure[2]]]) {
+    assert.ok(label.includes(AGENT_CONFIG_KEY), `${lang} names the storage key it writes`);
+    assert.match(label, /不会上传|not uploaded/, `${lang} says the key is not uploaded`);
+    assert.match(label, /服务器|server/, `${lang} names the server it does not reach`);
+  }
+  const html = readFileSync(new URL("../../web/index.html", import.meta.url), "utf8");
+  assert.match(html, /id="agentVendorHint"[^>]*data-ai-setting="vendorHint"/, "the provider hint has its own label");
+  assert.match(html, /class="key-note"[\s\S]*data-ai-setting="keyStorage"/, "the key disclosure is rendered next to the field");
 });
