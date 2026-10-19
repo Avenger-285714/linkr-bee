@@ -331,6 +331,12 @@ const I18N = {
     settingsConnection: "Connect",
     settingsTerminal: "Serial",
     settingsNetwork: "Network",
+    // The rail's fourth section. Without this key t() falls back to the key
+    // itself, so the icon button announced (and titled) "assistant".
+    assistant: "Assistant",
+    // The rail landmark's own name. It is the one accessible name in the rail
+    // that is not a section, so it needs its own key.
+    sections: "Sections",
     terminalSettings: "Terminal Settings",
     diagnostics: "Device Diagnostics",
     diagFirmware: "Firmware",
@@ -399,6 +405,8 @@ const I18N = {
     xterm: "xterm.js",
     terminalInputHint: "Modifiers apply once · Swipe right-hand keys for more",
     terminalInputDisconnected: "Connect a device to enable terminal input",
+    emptyTitle: "No device yet",
+    emptyHint: "Tap Connect to scan for a nearby Linkr Bee",
     placeholderWifiSsid: "SSID",
     placeholderWifiPassword: "Leave blank for an open network",
     placeholderWebdav: "http://host/path/ (anonymous)",
@@ -496,6 +504,8 @@ const I18N = {
     settingsConnection: "连接",
     settingsTerminal: "串口",
     settingsNetwork: "网络",
+    assistant: "助手",
+    sections: "分区",
     terminalSettings: "终端设置",
     diagnostics: "设备诊断",
     diagFirmware: "固件",
@@ -564,6 +574,8 @@ const I18N = {
     xterm: "xterm.js",
     terminalInputHint: "组合键单次生效 · 左右滑动右侧按键查看更多",
     terminalInputDisconnected: "连接设备后即可在终端内直接输入",
+    emptyTitle: "还没有连接设备",
+    emptyHint: "点右上角「连接」，扫描附近的 Linkr Bee",
     placeholderWifiSsid: "SSID",
     placeholderWifiPassword: "开放网络可留空",
     placeholderWebdav: "http://host/path/ (匿名)",
@@ -757,7 +769,7 @@ function toggleLanguage() {
 function applyTheme() {
   document.documentElement.setAttribute("data-theme", theme);
   if (elements.themeColorMeta) {
-    elements.themeColorMeta.content = theme === "dark" ? "#090d14" : "#eef2f7";
+    elements.themeColorMeta.content = theme === "dark" ? "#05080D" : "#E2E9F4";
   }
   Promise.resolve(window.LinkrNativeUi?.setTheme?.(theme)).catch(() => {
     // Web and Capacitor hosts do not expose native system-bar controls.
@@ -2036,6 +2048,10 @@ function setConnected(connected, { preserveJournal = false } = {}) {
   });
   if (!connected) resetModifiers();
   elements.terminalOutput.classList.toggle("connected", connected);
+  // The empty state is for "no session yet", not "no session right now": a
+  // disconnect keeps the transcript, and the overlay is transparent, so
+  // letting it come back would draw the mark and the hint over the user's log.
+  if (connected) elements.terminalOutput.dataset.everConnected = "1";
   elements.terminalInputHint.textContent = t(
     connected ? "terminalInputHint" : "terminalInputDisconnected",
   );
