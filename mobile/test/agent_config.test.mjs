@@ -255,7 +255,7 @@ test("an endpoint no preset owns is Custom, including empty and invalid ones", (
   for (const endpoint of ["https://proxy.example.com/v1", "", "not a url", undefined, null]) {
     assert.equal(vendorForEndpoint(endpoint), AGENT_VENDOR_CUSTOM, String(endpoint));
   }
-  assert.equal(vendorForEndpoint("https://api.deepseek.com/v1/"), "deepseek", "trailing slash is normalised");
+  assert.equal(vendorForEndpoint("https://api.deepseek.com/"), "deepseek", "trailing slash is normalised");
 });
 
 /* The disclosure is the feature, not decoration: it must name the storage key

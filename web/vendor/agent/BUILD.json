@@ -22,7 +22,7 @@
   },
   "sources": {
     "web/device_profile.js": "a6f0926ee5fd79c86a0020db91605b40ac07383f632c842d5c07e0cfb6236929",
-    "web/agent_config.js": "42ab802d9f274c1765afef742fb67d8dfd5475e482cbcd12141474ad78b18ed3",
+    "web/agent_config.js": "34bfa931405e93546bae34c4649e016a0e567c93e1512e6deed251c104765cce",
     "web/serial_observation.js": "4033912cf0cde1bbde2906f3e8c2af67328685dba8ba3e30dd8d72ba13efde89",
     "web/command_policy.js": "940328bac02f22c29df6beb7d2d16bcc7654408ddac3bc5401c97b0539ebcad9",
     "web/agent_execution_policy.js": "b5109b721b5074101ca8a84de057747cd4ed524720322609059c1fb66541a6d2",
