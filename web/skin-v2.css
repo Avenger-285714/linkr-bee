@@ -211,31 +211,37 @@ body {
   display: grid;
 }
 
+/* The rail layout is for pointer devices. `settings-drawer-layout` is chosen by
+ * the input device, not the window width — every coarse-pointer host (all
+ * phones and tablets, and HarmonyOS) uses the overlay drawer at any width — so
+ * gating on width alone put a flex rail into a one-column grid: it stretched to
+ * the full width and covered the page, intercepting every tap. A 1194x834 iPad
+ * in landscape is exactly that case. */
 @media (min-width: 1101px) {
-  .app-shell {
+  html:not(.settings-drawer-layout) .app-shell {
     --sidebar-width: clamp(312px, 23vw, 400px);
     grid-template-columns: 56px minmax(0, var(--sidebar-width)) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .rail {
+  html:not(.settings-drawer-layout) .rail {
     display: flex;
     grid-column: 1;
     grid-row: 2;
   }
 
-  .controls {
+  html:not(.settings-drawer-layout) .controls {
     grid-column: 2;
     grid-row: 2;
     padding-right: 0;
   }
 
-  .workpanel {
+  html:not(.settings-drawer-layout) .workpanel {
     grid-column: 3;
     grid-row: 2;
   }
 
-  .app-shell.controls-hidden {
+  html:not(.settings-drawer-layout) .app-shell.controls-hidden {
     grid-template-columns: 56px 0 minmax(0, 1fr);
   }
 }
@@ -535,7 +541,7 @@ h1 {
    * and this file is the presentation layer that retunes them without editing
    * them. One declaration that cannot be outranked beats a selector list that
    * breaks the next time the legacy sheet grows another variant. */
-  .settings-tabs {
+  html:not(.settings-drawer-layout) .settings-tabs {
     display: none !important;
   }
 
@@ -1055,7 +1061,11 @@ h1 {
  * phone breakpoint — including the 901-1100 band, where the title row was
  * already visible. Only the title stays. */
 @media (min-width: 901px) {
-  .controls .drawer-head-actions {
+  /* The topbar carries these two from 901 px up, so the drawer's copies are a
+   * second pair of the same controls. The close button is not a duplicate: it
+   * is the in-panel way out, so it stays. */
+  .controls .drawer-head-actions #drawerThemeButton,
+  .controls .drawer-head-actions #drawerLangButton {
     display: none;
   }
 }
@@ -1096,6 +1106,14 @@ h1 {
 }
 
 .terminal-output.connected .terminal-empty {
+  display: none;
+}
+
+/* Once a session has existed the empty state is gone for good. It keys on the
+ * current connection, so a disconnect used to bring it back on top of the
+ * transcript that is still in the buffer — transparent, absolutely positioned
+ * and centred, which reads as two texts printed over each other. */
+.terminal-output[data-ever-connected] .terminal-empty {
   display: none;
 }
 

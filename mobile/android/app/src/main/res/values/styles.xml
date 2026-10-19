@@ -8,10 +8,11 @@
         <item name="colorPrimary">@color/brand_accent</item>
         <item name="colorPrimaryDark">@color/brand_bg</item>
         <item name="colorAccent">@color/brand_accent</item>
-        <item name="android:windowBackground">@color/brand_bg</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <!-- DayNight owns the bars: forcing a dark window and light glyphs made
+             the in-app light theme draw white status-bar icons on white. The
+             window colour is a day/night pair so a cold start does not flash the
+             other theme's background. -->
+        <item name="android:windowBackground">@color/window_bg</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="AppTheme">
@@ -20,7 +21,14 @@
         <item name="android:background">@null</item>
     </style>
 
+    <!-- The launch window's background is the inherited windowBackground, not
+         `android:background` (a View attribute, ignored here), so the splash is
+         declared through the two attributes the splash screen actually reads:
+         core-splashscreen's compat drawable on 12-, the system splash on 31+.
+         `splash_mark` is the artwork drawn for that size, not the launcher
+         foreground (108 dp adaptive, which the system would mask). -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/brand_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
     </style>
 </resources>

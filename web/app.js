@@ -334,6 +334,9 @@ const I18N = {
     // The rail's fourth section. Without this key t() falls back to the key
     // itself, so the icon button announced (and titled) "assistant".
     assistant: "Assistant",
+    // The rail landmark's own name. It is the one accessible name in the rail
+    // that is not a section, so it needs its own key.
+    sections: "Sections",
     terminalSettings: "Terminal Settings",
     diagnostics: "Device Diagnostics",
     diagFirmware: "Firmware",
@@ -502,6 +505,7 @@ const I18N = {
     settingsTerminal: "串口",
     settingsNetwork: "网络",
     assistant: "助手",
+    sections: "分区",
     terminalSettings: "终端设置",
     diagnostics: "设备诊断",
     diagFirmware: "固件",
@@ -2044,6 +2048,10 @@ function setConnected(connected, { preserveJournal = false } = {}) {
   });
   if (!connected) resetModifiers();
   elements.terminalOutput.classList.toggle("connected", connected);
+  // The empty state is for "no session yet", not "no session right now": a
+  // disconnect keeps the transcript, and the overlay is transparent, so
+  // letting it come back would draw the mark and the hint over the user's log.
+  if (connected) elements.terminalOutput.dataset.everConnected = "1";
   elements.terminalInputHint.textContent = t(
     connected ? "terminalInputHint" : "terminalInputDisconnected",
   );

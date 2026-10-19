@@ -158,13 +158,22 @@ test("desktop Agent can open shared settings after the normal sidebar was collap
   await page.locator("#drawerClose").click();
   await expect(page.locator("#controlsPanel")).toHaveAttribute("aria-hidden", "true");
   await expect(page.locator("#panelToggle")).toBeFocused();
-  // Narrow mouse-operated windows use the same right-hand sheet as tablets.
+  // Narrow mouse-operated windows use the same sheet as tablets. The sheet is
+  // left-anchored now — skin-v2 restates the geometry because style.css carried
+  // two conflicting right-anchored rules — so "on screen" is x >= 0 with the
+  // right edge inside the window, not x > 0.
   await page.setViewportSize({ width: 802, height: 867 });
+  // Crossing the 900px breakpoint fires a media-query change that resets the
+  // open state; wait for the shell to switch modes before toggling, or the
+  // click races that handler and the drawer it just opened is closed again.
+  await expect(page.locator("html")).toHaveClass(/settings-drawer-layout/);
   await page.locator("#panelToggle").click();
   await expect(page.locator("#controlsPanel")).toHaveAttribute("aria-modal", "true");
+  // The sheet slides in over 250 ms, so its rect is still off-screen on the
+  // first frame; poll the settled geometry instead of reading it once.
+  await expect.poll(() => page.locator("#controlsPanel").evaluate((el) => Math.round(el.getBoundingClientRect().x))).toBeGreaterThanOrEqual(0);
   await expect.poll(() => page.locator("#controlsPanel").evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(802);
   const sheet = await page.locator("#controlsPanel").boundingBox();
-  expect(sheet.x).toBeGreaterThan(0);
   expect(sheet.x + sheet.width).toBeLessThanOrEqual(802);
   await context.close();
 });
@@ -177,7 +186,9 @@ for (const expanded of [false, true]) {
     if (expanded) await page.locator("#panelToggle").click();
     // Wait for the sidebar transition before comparing the two workspaces.
     await expect.poll(() => page.locator("#controlsPanel").evaluate((el) => Math.round(el.getBoundingClientRect().width)))
-      .toBe(expanded ? 300 : 2);
+      // The rail layout widens the sidebar: clamp(312px, 23vw, 400px), and
+      // 23vw of 1285 is 295, so the lower bound wins.
+      .toBe(expanded ? 312 : 2);
     const terminal = page.locator("#terminalCard");
     const before = await terminal.boundingBox();
     const header = await page.locator(".topbar").boundingBox();

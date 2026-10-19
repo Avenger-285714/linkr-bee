@@ -8,6 +8,12 @@
 // AppKit renders an SVG with no extra setup.
 //
 //   swift tools/render_svg.swift assets/app-icon.svg /tmp/icon.png 1024
+//   swift tools/render_svg.swift assets/app-icon.svg /tmp/icon.png 1024 opaque
+//
+// The optional last argument drops the alpha channel. App Store Connect rejects
+// a marketing icon that carries one (ITMS-90717) even when every pixel is
+// opaque, so the iOS 1024 icon must be rendered `opaque`; adaptive layers,
+// monochrome layers and splash marks need transparency and keep the default.
 //
 // Sizes used by this repository:
 //   iOS app icon            1024
@@ -34,6 +40,7 @@ guard let image = NSImage(contentsOfFile: inPath) else {
     FileHandle.standardError.write("cannot load \(inPath)\n".data(using: .utf8)!)
     exit(2)
 }
+let opaque = args.count > 4 && args[4] == "opaque"
 guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
                                  bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                  isPlanar: false, colorSpaceName: .deviceRGB,
@@ -47,7 +54,26 @@ NSGraphicsContext.current?.imageInterpolation = .high
 NSGraphicsContext.current?.shouldAntialias = true
 image.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
 NSGraphicsContext.restoreGraphicsState()
-guard let data = rep.representation(using: .png, properties: [:]) else {
+// AppKit refuses a 3-sample bitmap rep, so the alpha is dropped after drawing:
+// repaint the rendered pixels into an RGB context whose PNG has no alpha
+// channel. A transparent edge becomes white rather than a black fringe.
+var encoded: Data?
+if opaque, let drawn = rep.cgImage {
+    let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    if let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
+                           bytesPerRow: 0, space: space,
+                           bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) {
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        ctx.draw(drawn, in: CGRect(x: 0, y: 0, width: size, height: size))
+        if let flat = ctx.makeImage() {
+            encoded = NSBitmapImageRep(cgImage: flat).representation(using: .png, properties: [:])
+        }
+    }
+} else {
+    encoded = rep.representation(using: .png, properties: [:])
+}
+guard let data = encoded else {
     FileHandle.standardError.write("PNG encoding failed\n".data(using: .utf8)!)
     exit(4)
 }
