@@ -128,7 +128,9 @@ test("tablet drawer exposes a translated AI tab alongside connection, serial and
   await page.locator("#drawerLangButton").tap();
   await expect(page.locator("#agentSettingsTitle")).toHaveText("AI 配置");
   await expect(page.locator("#agentSettingsSave")).toHaveText("保存配置");
-  await expect(page.locator(".settings-tab:visible")).toHaveCount(4);
+  // Connection, serial, network, AI and About share the strip on touch devices.
+  await expect(page.locator(".settings-tab:visible")).toHaveCount(5);
+  await expect(page.locator('[data-settings-target="about"]')).toHaveText("关于");
   const drawer = await page.locator("#controlsPanel").boundingBox();
   expect(drawer.width).toBeLessThan(802);
   expect(drawer.x + drawer.width).toBeLessThanOrEqual(802);

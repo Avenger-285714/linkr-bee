@@ -131,7 +131,10 @@ services that do not expose the endpoint. The API key is stored only in this bro
 `localStorage` (`linkr-agent-model`) and is never uploaded to Linkr Bee or any
 server — there is no cloud account — so requests go from this device straight to
 your provider. The conversation is kept per board on the device, so a reload
-continues where it stopped instead of starting over.
+continues where it stopped instead of starting over. The settings drawer also has
+an **About** page: the open-source components each build ships with their versions
+and licences, the firmware stack, the CC-BY-4.0 cursor attribution, this
+project's Apache-2.0 licence, and the contributors.
 
 ## LAN mode
 
