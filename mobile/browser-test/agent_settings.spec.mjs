@@ -279,8 +279,8 @@ test("a provider preset fills the connection and the form says where the key liv
   await expect(note).toContainText(/不会上传|not uploaded/);
 
   await vendor.selectOption("deepseek");
-  await expect(page.locator("#agentEndpoint")).toHaveValue("https://api.deepseek.com/v1");
-  await expect(page.locator("#agentModel")).toHaveValue("deepseek-chat");
+  await expect(page.locator("#agentEndpoint")).toHaveValue("https://api.deepseek.com");
+  await expect(page.locator("#agentModel")).toHaveValue("deepseek-flash");
   await expect(page.locator("#agentProvider")).toHaveValue("openai-completions");
   await expect(page.locator("#agentSettingsStatus")).toContainText(/尚未保存|not been saved/);
 
