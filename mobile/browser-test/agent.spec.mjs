@@ -4,7 +4,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/app.js?*", async (route) => {
     const response = await route.fetch();
     await route.fulfill({ response, body: await response.text() +
-      "\nwindow.__test = { state, setConnected, handleIncomingBytes, enqueueBytes, bleTransport, setBindingControl: fn => { sendControl = fn; } };" });
+      "\nwindow.__test = { state, setConnected, handleIncomingBytes, enqueueBytes, bleTransport, agentJournal, setBindingControl: fn => { sendControl = fn; } };" });
   });
   await page.goto("/");
   await page.waitForFunction(() => window.__test?.state.term);
@@ -503,11 +503,16 @@ for (const [width, height] of [[320, 740], [375, 812], [802, 867], [1194, 834]])
     await page.setViewportSize({ width, height });
     const heading = page.locator("#agentPanel .agent-header");
     await expect.poll(() => heading.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    const header = await heading.boundingBox();
     const button = await page.locator("#agentModeButton").boundingBox();
     expect(button.height).toBeGreaterThanOrEqual(44);
     expect(button.width).toBeGreaterThanOrEqual(44);
-    expect(button.y + button.height).toBeLessThanOrEqual(header.y + header.height);
+    // Poll the invariant: the preceding drawer close leaves a 250 ms transition
+    // running, and a single read here can land mid-layout by a few pixels.
+    await expect.poll(async () => {
+      const header = await heading.boundingBox();
+      const box = await page.locator("#agentModeButton").boundingBox();
+      return box.y + box.height - (header.y + header.height);
+    }).toBeLessThanOrEqual(0);
     await page.screenshot({ path: `test-results/agent-gears-${width}.png` });
     await page.locator("#agentModeButton").tap();
     await expect(page.locator("#agentModePicker")).toBeVisible();
@@ -974,6 +979,12 @@ for (const desktop of [false,true]) test.describe(desktop?'desktop target bindin
    };
   });
   await page.locator('#agentSettingsButton').click();
+  // The "idle, observed POSIX shell prompt" guard is computed from the journal,
+  // which the injected bytes reach on the app's own tick; clicking before it
+  // lands fails with "Tracked commands require an idle, observed POSIX shell
+  // prompt" instead of opening the password prompt.
+  await expect.poll(() => page.evaluate(() =>
+    window.__test.agentJournal.read({ limit: 4000 }).text.includes("root@board:~#"))).toBe(true);
   await page.evaluate(()=>window.bindingPasswordPrompt=true);
   await page.locator('#targetBind').click();
   await expect(page.locator('#targetBindingStatus')).toContainText('Enter the target sudo password');
