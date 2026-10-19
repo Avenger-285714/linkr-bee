@@ -121,9 +121,17 @@ page calls the model endpoint directly, so the endpoint has to accept requests f
 the page — most hosted providers and local model servers do. Anthropic needs one
 extra header; see the
 [serial assistant notes](mobile/README.md#built-in-serial-assistant-pi) for setup.
-OpenAI-compatible, Anthropic and Gemini protocols are all selectable, and the
-conversation is kept per board on the device, so a reload continues where it
-stopped instead of starting over.
+Pick a provider from the list (OpenAI, Anthropic, Google Gemini, DeepSeek,
+Moonshot, Zhipu, Alibaba Cloud Bailian, SiliconFlow, Volcengine Ark, Groq,
+OpenRouter, Mistral, xAI or a local Ollama) and the base URL, protocol and
+suggested model are filled in for you; OpenAI-compatible, Anthropic and Gemini
+protocols are all selectable. **Fetch model list** then reads the IDs the service
+currently offers (the hard-coded ones go stale) and leaves the field editable for
+services that do not expose the endpoint. The API key is stored only in this browser's
+`localStorage` (`linkr-agent-model`) and is never uploaded to Linkr Bee or any
+server — there is no cloud account — so requests go from this device straight to
+your provider. The conversation is kept per board on the device, so a reload
+continues where it stopped instead of starting over.
 
 ## LAN mode
 

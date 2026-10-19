@@ -39,9 +39,19 @@ in addition to the browser regression tests.
 
 Open **Settings → AI** in the main controls panel (also available through
 **Settings** in the Agent header, without leaving the conversation).
-Configure a Chat Completions-compatible API
-base URL, a model ID with tool-calling support, and your own API key (optional
-for keyless local services), then select **Save configuration**. Saving does not
+Start with the **AI provider** list — OpenAI, Anthropic, Google Gemini, DeepSeek,
+Moonshot Kimi, Zhipu GLM, Alibaba Cloud Bailian (Qwen), SiliconFlow, Volcengine
+Ark (Doubao), Groq, OpenRouter, Mistral, xAI, or Ollama on this machine. Choosing
+one fills the base URL, the protocol and a starting model ID; every field stays
+editable, the model is only a suggestion, and **Custom** changes nothing so an
+endpoint can be typed by hand. Then add your own API key (optional for keyless
+local services) and select **Save configuration**.
+
+Because provider model IDs churn, **Fetch model list** reads the list the service
+currently offers, using the address, key and extra headers already in the form.
+The ids become suggestions in the model field, which stays editable — a service
+may not expose the endpoint, and a browser request can be blocked (CORS), in
+which case the panel says so and keeps what you typed. Saving does not
 send a model request. Endpoint, model and API key are restored after reloading
 or restarting the app. Re-saving unchanged settings retains the current diagnostic
 conversation; changing the endpoint, model or key resets its model context.
@@ -206,8 +216,11 @@ transcript is the one exception and is stored per device, as described below.
 
 Questions and requested serial logs are sent to the configured model endpoint.
 Endpoint, model ID and API key are saved in this app / browser origin's
-`localStorage`; this is not an encrypted OS credential vault. Clearing the
-configuration or app / site data removes them. A conversation is stored per
+`localStorage` under `linkr-agent-model`, in plaintext; this is not an encrypted
+OS credential vault. The key is **not uploaded to Linkr Bee, this site or any
+server** — the app has no cloud account or backend, so there is no cloud copy —
+and a request carries it from this device directly to the provider you chose.
+Clearing the configuration or app / site data removes it. A conversation is stored per
 device identity alongside the task summaries, so reloading the page brings the
 transcript back, labelled as unverified history, and continues the same model
 context. Restoring it sends nothing to the target: no command is replayed. **New
