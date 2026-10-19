@@ -971,7 +971,14 @@ for (const desktop of [false,true]) test.describe(desktop?'desktop target bindin
    bleTransport.write=async (_id,_service,_characteristic,bytes)=>{
     pending+=new TextDecoder().decode(bytes);
     if(pending.endsWith('\r')){
-     const marker=pending.match(/LINKR_ID_[a-f0-9]+/)[0],exit=pending.match(/LINKR_EXIT_[a-f0-9]+/)[0];
+     const idMarker=pending.match(/LINKR_ID_[a-f0-9]+/),exitMarker=pending.match(/LINKR_EXIT_[a-f0-9]+/);
+     /* The app writes its own terminal control to the same transport (a
+      * geometry `stty rows … cols …` on connect). This stub only models tracked
+      * commands; anything else must be swallowed, not indexed into — a throw
+      * here fails the write, and a failed write latches `serialInputPending`,
+      * which then refuses every tracked command as "not an idle prompt". */
+     if(!idMarker || !exitMarker){ pending=''; return; }
+     const marker=idMarker[0],exit=exitMarker[0];
      if(window.bindingPasswordPrompt) { pending=''; window.bindingPasswordPrompt=false; setTimeout(()=>handleIncomingBytes(new TextEncoder().encode('\r\n[sudo] password: ')),30); return; }
      if(pending.includes('mv -f')) window.targetId=pending.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)[0];
      pending='';setTimeout(()=>handleIncomingBytes(new TextEncoder().encode(`\r\n${marker}:${window.targetId}\r\n${exit}:0\r\nroot@board:~# `)),30);
