@@ -92,6 +92,13 @@
           </svg>
         </button>
         <span class="rail-spacer"></span>
+        <button class="rail-btn" type="button" data-rail-target="about" aria-label="About" data-i18n-aria="aboutNav" data-i18n-title="aboutNav">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.6"></circle>
+            <path d="M12 11v5"></path>
+            <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"></circle>
+          </svg>
+        </button>
       </nav>
 
       <aside id="controlsPanel" class="controls window-surface" data-i18n-aria="controls" aria-label="Controls" data-settings-active="connection">
@@ -124,6 +131,7 @@
           <button class="settings-tab" type="button" data-settings-target="terminal" data-i18n="settingsTerminal" aria-selected="false">Serial</button>
           <button class="settings-tab" type="button" data-settings-target="network" data-i18n="settingsNetwork" aria-selected="false">Network</button>
           <button class="settings-tab" type="button" data-settings-target="ai" aria-selected="false" hidden>AI</button>
+          <button class="settings-tab" type="button" data-settings-target="about" data-i18n="aboutNav" aria-selected="false">About</button>
         </nav>
 
         <section class="card" data-i18n-aria="connectionControls" aria-label="Connection controls" data-settings-page="connection">
@@ -442,6 +450,31 @@
             <p id="targetBindingStatus" class="field-hint" role="status" aria-live="polite"></p>
           </section>
         </section>
+        <section id="aboutPage" class="card about-page" data-settings-page="about" aria-labelledby="aboutTitle">
+          <div class="card-title">
+            <span class="dot"></span><span id="aboutTitle" data-i18n="aboutNav">About</span>
+          </div>
+          <p class="about-lead" data-i18n="aboutLead">An open-source serial terminal for Linkr Bee bridges, with an assistant that talks to the model service you configure.</p>
+          <p id="aboutMeta" class="about-meta"></p>
+          <h3 class="about-heading" data-i18n="aboutComponentsHeading">Open source components</h3>
+          <p class="field-hint" data-i18n="aboutComponentsHint">Everything the app and its firmware ship, with the licence each one is distributed under. The full licence texts travel with the components.</p>
+          <div id="aboutComponents"></div>
+          <h3 class="about-heading" data-i18n="aboutComplianceHeading">Licences and compliance</h3>
+          <ul class="about-compliance">
+            <li data-i18n="aboutComplianceProject">This project is released under Apache-2.0.</li>
+            <li data-i18n="aboutComplianceThirdParty">Third-party components remain the property of their authors and are distributed under their own licences, listed above.</li>
+            <li data-i18n="aboutComplianceDual">DOMPurify is dual-licensed MPL-2.0 / Apache-2.0; this project uses it under Apache-2.0.</li>
+            <li data-i18n="aboutComplianceCcBy">The macaron cursors are CC-BY-4.0, © UnionTech Software Technology Co., Ltd.; three shapes were converted from XCursor to PNG. Attribution and the source revision are in vendor/macaron-cursors/README.md.</li>
+          </ul>
+          <h3 class="about-heading" data-i18n="aboutContributorsHeading">Contributors</h3>
+          <p class="field-hint" data-i18n="aboutContributorsHint">Taken from the git history of radxa/linkr-bee; duplicate identities are merged.</p>
+          <div id="aboutContributors" class="about-contributors"></div>
+          <div class="about-links">
+            <a id="aboutRepository" data-i18n="aboutRepository" target="_blank" rel="noreferrer">Repository</a>
+            <a id="aboutIssues" data-i18n="aboutIssues" target="_blank" rel="noreferrer">Report a problem</a>
+            <a id="aboutLicenseLink" data-i18n="aboutLicenseLink" target="_blank" rel="noreferrer">Licence text</a>
+          </div>
+        </section>
       </aside>
 
       <section class="workpanel">
@@ -570,7 +603,7 @@
     <script src="./vendor/xterm/xterm.js"></script>
     <script src="./vendor/addon-fit/addon-fit.js"></script>
     <script type="module" src="./ble_transport.js?v=20260901-mobile1"></script>
-    <script type="module" src="./app.js?v=20261019-rail-i18n"></script>
+    <script type="module" src="./app.js?v=20261019-about"></script>
     <script type="module" src="./rail_nav.js?v=20261017-v2"></script>
     <script>
       /* The terminal boots from static ES modules, so one failed request -- a

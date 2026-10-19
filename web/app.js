@@ -35,6 +35,7 @@ import { subscribeTerminalInput } from "./terminal_input.js";
 import { SerialJournal } from "./serial_journal.js";
 import { createAgentPanel } from "./agent_panel.js";
 import { createAgentSettings } from "./agent_settings.js";
+import { createAboutPage } from "./about_page.js";
 import { inputLeavesPendingLine } from "./agent_execution_policy.js";
 import {
   createTerminalSessionTracker,
@@ -48,6 +49,7 @@ const terminalSessionTracker = createTerminalSessionTracker();
 const agentJournal = new SerialJournal();
 let agentPanel = null;
 let agentSettings = null;
+let aboutPage = null;
 let serialInputRevision = 0;
 let serialInputPending = false;
 let bleNotificationSession = null;
@@ -334,6 +336,20 @@ const I18N = {
     // The rail's fourth section. Without this key t() falls back to the key
     // itself, so the icon button announced (and titled) "assistant".
     assistant: "Assistant",
+    aboutNav: "About",
+    aboutLead: "An open-source serial terminal for Linkr Bee bridges, with an assistant that talks to the model service you configure.",
+    aboutComponentsHeading: "Open source components",
+    aboutComponentsHint: "Everything the app and its firmware ship, with the licence each one is distributed under. The full licence texts travel with the components.",
+    aboutComplianceHeading: "Licences and compliance",
+    aboutComplianceProject: "This project is released under Apache-2.0.",
+    aboutComplianceThirdParty: "Third-party components remain the property of their authors and are distributed under their own licences, listed above.",
+    aboutComplianceDual: "DOMPurify is dual-licensed MPL-2.0 / Apache-2.0; this project uses it under Apache-2.0.",
+    aboutComplianceCcBy: "The macaron cursors are CC-BY-4.0, © UnionTech Software Technology Co., Ltd.; three shapes were converted from XCursor to PNG. Attribution and the source revision are in vendor/macaron-cursors/README.md.",
+    aboutContributorsHeading: "Contributors",
+    aboutContributorsHint: "Taken from the git history of radxa/linkr-bee; duplicate identities are merged.",
+    aboutRepository: "Repository",
+    aboutIssues: "Report a problem",
+    aboutLicenseLink: "Licence text",
     // The rail landmark's own name. It is the one accessible name in the rail
     // that is not a section, so it needs its own key.
     sections: "Sections",
@@ -505,6 +521,20 @@ const I18N = {
     settingsTerminal: "串口",
     settingsNetwork: "网络",
     assistant: "助手",
+    aboutNav: "关于",
+    aboutLead: "Linkr Bee 桥接器的开源串口终端，并带有可自行配置模型服务的助手。",
+    aboutComponentsHeading: "开源组件",
+    aboutComponentsHint: "程序与其固件实际随附的组件，以及各自的许可证。完整许可证文本随各组件分发。",
+    aboutComplianceHeading: "许可证与合规",
+    aboutComplianceProject: "本项目以 Apache-2.0 发布。",
+    aboutComplianceThirdParty: "第三方组件版权归其作者，按各自许可证分发，见上表。",
+    aboutComplianceDual: "DOMPurify 采用 MPL-2.0 / Apache-2.0 双许可，本项目按 Apache-2.0 使用。",
+    aboutComplianceCcBy: "Macaron 光标为 CC-BY-4.0，© 统信软件技术有限公司；三种形状由 XCursor 转为 PNG。署名与来源版本见 vendor/macaron-cursors/README.md。",
+    aboutContributorsHeading: "贡献者",
+    aboutContributorsHint: "按 radxa/linkr-bee 的 git 提交历史整理，重复身份已合并。",
+    aboutRepository: "项目仓库",
+    aboutIssues: "问题反馈",
+    aboutLicenseLink: "许可证全文",
     sections: "分区",
     terminalSettings: "终端设置",
     diagnostics: "设备诊断",
@@ -996,6 +1026,7 @@ function applyLang() {
   updateModifierButtons();
   agentPanel?.refreshLang();
   agentSettings?.refreshLang();
+  aboutPage?.refreshLang();
 }
 
 function fitTerminal() {
@@ -3313,7 +3344,7 @@ function closeSidebar({ restoreFocus = true } = {}) {
 }
 
 function setSettingsPage(page) {
-  const next = ["connection", "terminal", "network", ...(agentSettings ? ["ai"] : [])].includes(page)
+  const next = ["connection", "terminal", "network", "about", ...(agentSettings ? ["ai"] : [])].includes(page)
     ? page
     : "connection";
   elements.controls.dataset.settingsActive = next;
@@ -3753,6 +3784,7 @@ async function executeAccessoryChange({ action, args = {}, command, signal }) {
 
 function init() {
   loadPersisted();
+  aboutPage = createAboutPage({ section: $("aboutPage"), getLang: () => lang });
   agentSettings = createAgentSettings({
     section: $("agentSettings"), tab: document.querySelector('[data-settings-target="ai"]'),
     getLang: () => lang, onChange: () => agentPanel?.settingsChanged(),

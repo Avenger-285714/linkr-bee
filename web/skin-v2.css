@@ -1441,3 +1441,155 @@ button,
     animation: none;
   }
 }
+
+/* ---------- About page ---------- */
+
+/* One section at a time, including About. The legacy sheet lists the other
+ * pages explicitly and this sheet only needed to add the new direction: when
+ * About is active, everything else goes. */
+.controls[data-settings-active="about"] [data-settings-page]:not([data-settings-page="about"]) {
+  display: none;
+}
+
+/* ...and the reverse for the bands where the legacy sheet's list is the only
+ * thing hiding pages. Both directions live here so the About page cannot show
+ * up beside another section at any width. */
+.controls[data-settings-active="connection"] [data-settings-page="about"],
+.controls[data-settings-active="terminal"] [data-settings-page="about"],
+.controls[data-settings-active="network"] [data-settings-page="about"],
+.controls[data-settings-active="ai"] [data-settings-page="about"] {
+  display: none;
+}
+
+.about-page .about-lead {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.about-page .about-meta {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.about-page .about-heading {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.about-page .about-group-title {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.about-page .about-group {
+  display: grid;
+  gap: 2px;
+}
+
+.about-page .about-component {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.about-page .about-component:last-child {
+  border-bottom: 0;
+}
+
+.about-page .about-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.about-page .about-name:hover {
+  color: var(--accent-strong);
+}
+
+.about-page .about-version {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.about-page .about-license,
+.about-page .about-license-link {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 10.5px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.about-page .about-license-link:hover {
+  color: var(--accent-strong);
+}
+
+.about-page .about-extra {
+  flex: 1 1 100%;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.about-page .about-compliance {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.about-page .about-compliance li {
+  margin: 4px 0;
+}
+
+.about-page .about-contributors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.about-page .about-contributor {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.about-page .about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.about-page .about-links a {
+  font-size: 12px;
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+.about-page .about-links a:hover {
+  text-decoration: underline;
+}

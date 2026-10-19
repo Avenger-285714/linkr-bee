@@ -16,6 +16,25 @@ shells that support it. Paste uses the clipboard when available and otherwise
 prompts you to long-press the terminal. Both rows stay above the soft keyboard
 and are shared with the Web and HarmonyOS clients.
 
+## About page
+
+Settings -> **About** lists the open-source components the web and mobile builds
+ship (versions and licences taken from the installed tree, not from the
+`package.json` ranges), the firmware stack pinned by `west.yml`, the CC-BY-4.0
+cursor attribution with its author and statement of changes, this project's
+Apache-2.0 licence, and the contributors.
+
+The component data is generated into `web/about-data.js`:
+
+```sh
+node tools/gen_about.mjs
+```
+
+Run it after changing dependencies. `mobile/test/about.test.mjs` regenerates the
+data in memory and fails when the committed file differs, so a bumped package
+cannot ship an About page that names the old version. Contributors are curated in
+the generator: the real source is `git shortlog`, but CI checks out with depth 1.
+
 ## Built-in serial assistant (Pi)
 
 Tap **AI** in the terminal toolbar to enter Agent mode. Narrow windows show the
