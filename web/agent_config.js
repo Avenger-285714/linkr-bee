@@ -130,6 +130,91 @@ export function vendorForEndpoint(endpoint) {
   return match?.id ?? AGENT_VENDOR_CUSTOM;
 }
 
+/* Model discovery. Every protocol this app speaks has a list endpoint, but the
+ * credential sits in a different header and the payload has a different shape,
+ * and the hard-coded ids in the presets go stale. Building the request and
+ * parsing the payload here — not in the settings panel — is what makes all
+ * three cases testable without a browser or a provider.
+ *
+ * The list is a convenience: a service can also omit the endpoint or refuse a
+ * browser request (CORS), so the UI must always keep the field editable. */
+export function modelsUrl({ endpoint }) {
+  return `${String(endpoint ?? "").trim().replace(/\/+$/, "")}/models`;
+}
+
+export function modelsRequest({ endpoint, apiKey = "", headers = {}, provider = AGENT_PROVIDERS[0].id }) {
+  const requestHeaders = { ...(headers || {}) };
+  if (provider === "anthropic-messages") {
+    // Anthropic reads x-api-key, not a bearer token, and versions the endpoint.
+    requestHeaders["x-api-key"] = apiKey;
+    requestHeaders["anthropic-version"] ||= "2023-06-01";
+  } else if (provider === "google-generative-ai") {
+    // Header rather than ?key=: a URL lands in proxy logs, a header does not.
+    requestHeaders["x-goog-api-key"] = apiKey;
+  } else if (apiKey) {
+    requestHeaders["Authorization"] = `Bearer ${apiKey}`;
+  }
+  return { url: modelsUrl({ endpoint }), headers: requestHeaders };
+}
+
+/* OpenAI-compatible services answer {data:[{id}]}; a few gateways also return
+ * {models:[...]}. Gemini answers {models:[{name:"models/x", supportedGenerationMethods}]}
+ * and lists embeddings and other non-chat models beside the chat ones, so only
+ * entries that can answer generateContent are offered. */
+export function parseModels(payload, provider = AGENT_PROVIDERS[0].id) {
+  const ids = [];
+  if (provider === "google-generative-ai") {
+    for (const model of payload?.models ?? []) {
+      const name = model?.name;
+      if (!name) continue;
+      const methods = model?.supportedGenerationMethods;
+      if (Array.isArray(methods) && !methods.includes("generateContent")) continue;
+      ids.push(String(name).replace(/^models\//, ""));
+    }
+  } else {
+    for (const model of payload?.data ?? payload?.models ?? []) {
+      const id = typeof model === "string" ? model : model?.id ?? model?.name;
+      if (id) ids.push(String(id));
+    }
+  }
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/* The failure kinds the panel words differently: a bad key is the user's to fix,
+ * a blocked request means "type the model yourself", an empty list means the
+ * service has nothing to offer. */
+export async function fetchAgentModels(config, fetchImpl = globalThis.fetch) {
+  const { url, headers } = modelsRequest(config);
+  let response;
+  try {
+    response = await fetchImpl(url, { method: "GET", headers });
+  } catch {
+    throw Object.assign(new Error("models-network"), { code: "models-network" });
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw Object.assign(new Error("models-unauthorized"), { code: "models-unauthorized" });
+  }
+  if (!response.ok) {
+    throw Object.assign(new Error("models-http"), { code: "models-http", status: response.status });
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw Object.assign(new Error("models-format"), { code: "models-empty" });
+  }
+  const models = parseModels(payload, config.provider);
+  if (!models.length) throw Object.assign(new Error("models-empty"), { code: "models-empty" });
+  return models;
+}
+
+export function isValidEndpoint(endpoint) {
+  let url;
+  try { url = new URL(String(endpoint ?? "").trim()); } catch { return false; }
+  return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password &&
+    !url.search && !url.hash;
+}
+
 // Ascending thinking budget. "off" leaves reasoning options out of the request.
 export const AGENT_REASONING_LEVELS = ["off", "low", "medium", "high"];
 

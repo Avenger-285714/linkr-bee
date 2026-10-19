@@ -9,7 +9,9 @@ import {
   AGENT_REASONING_LEVELS,
   clearAgentConfig,
   endpointSecurity,
+  fetchAgentModels,
   formatAgentHeaders,
+  isValidEndpoint,
   isContextWindowTight,
   loadAgentConfig,
   minimumUsefulContextWindow,
@@ -39,6 +41,17 @@ const labels = {
   endpoint: ["API 地址", "API base URL"],
   endpointHint: ["兼容 Chat Completions，例如 https://api.example.com/v1", "Chat Completions compatible, e.g. https://api.example.com/v1"],
   model: ["模型名称", "Model ID"], key: ["API Key", "API key"],
+  /* The preset model ids go stale, so the form can ask the service what it
+   * offers right now once the address and key are in. */
+  modelHint: ["可手动填写；填好地址和 API Key 后，可点击下方“获取模型列表”从服务端读取当前可用的模型。", "Type it, or fill in the address and API key and use Fetch model list below to read the models the service currently offers."],
+  fetchModels: ["获取模型列表", "Fetch model list"],
+  fetchBusy: ["正在获取模型列表…", "Fetching the model list…"],
+  fetchDone: ["已获取 {count} 个模型，从模型名称输入框的下拉中选择，也可继续手动输入。", "Found {count} models. Open the model field and pick one, or keep typing."],
+  fetchEndpoint: ["请先填写有效的 API 地址。", "Enter a valid API base URL first."],
+  fetchUnauthorized: ["无法获取模型列表：API Key 无效或没有读取模型的权限。", "Could not read the model list: the API key is invalid or cannot list models."],
+  fetchNetwork: ["无法获取模型列表：请求被浏览器跨域或网络拦截，或不支持该接口。可继续手动填写模型名。", "Could not read the model list: the request was blocked (CORS or network) or the endpoint does not support it. Type the model ID instead."],
+  fetchHttp: ["模型列表接口返回 HTTP {status}。可继续手动填写模型名。", "The model list endpoint returned HTTP {status}. Type the model ID instead."],
+  fetchEmpty: ["该服务没有返回可用的模型，请手动填写模型名。", "The service returned no usable models; type the model ID instead."],
   keyHint: ["无需密钥的本地服务可留空。", "Leave blank for a local service that does not require a key."],
   headers: ["附加请求头", "Extra request headers"],
   headersHint: ["每行一个 `名称: 值`。部分端点需要特定请求头才接受浏览器请求，例如 Anthropic 需要 anthropic-dangerous-direct-browser-access: true。", "One `Name: value` per line. Some endpoints only accept a browser request with a specific header, for example Anthropic needs anthropic-dangerous-direct-browser-access: true."],
@@ -129,6 +142,63 @@ export function createAgentSettings({ section, tab, getLang, onChange, bindingAc
     el.classList.toggle("field-error", (!busy && error) || exposed || Boolean(tight));
   }
   function showStatus(next, failed = false) { status = next; error = failed; renderStatus(); }
+  // Model discovery has its own line: it reports the list, not the record, and
+  // it must not overwrite the save/clear status the user is waiting on.
+  function showModelStatus(key, replacements = {}, failed = false) {
+    const el = $("agentModelStatus");
+    let message = key ? text(key) : "";
+    for (const [name, value] of Object.entries(replacements)) message = message.replace(`{${name}}`, String(value));
+    el.textContent = message;
+    el.classList.toggle("field-error", failed);
+  }
+  let fetchingModels = false;
+  async function fetchModels() {
+    if (busy || fetchingModels) return;
+    if (!isValidEndpoint(inputs.endpoint.value)) {
+      inputs.endpoint.setAttribute("aria-invalid", "true");
+      showModelStatus("fetchEndpoint", {}, true);
+      inputs.endpoint.focus();
+      return;
+    }
+    let requestHeaders;
+    try { requestHeaders = parseAgentHeaders(headersInput.value); }
+    catch {
+      headersInput.setAttribute("aria-invalid", "true");
+      showModelStatus("headersError", {}, true);
+      headersInput.focus();
+      return;
+    }
+    fetchingModels = true;
+    const button = $("agentModelFetch");
+    button.disabled = true;
+    showModelStatus("fetchBusy");
+    try {
+      const models = await fetchAgentModels({
+        endpoint: inputs.endpoint.value.trim(),
+        apiKey: inputs.apiKey.value,
+        headers: requestHeaders,
+        provider: inputs.provider.value || AGENT_PROVIDERS[0].id,
+      });
+      const list = $("agentModelOptions");
+      list.textContent = "";
+      for (const model of models) {
+        const option = document.createElement("option");
+        option.value = model;
+        list.append(option);
+      }
+      showModelStatus("fetchDone", { count: models.length });
+      // Choosing is the point: put the caret where the list opens.
+      if (!inputs.model.value.trim()) inputs.model.focus();
+    } catch (error) {
+      if (error?.code === "models-unauthorized") showModelStatus("fetchUnauthorized", {}, true);
+      else if (error?.code === "models-http") showModelStatus("fetchHttp", { status: error.status ?? "?" }, true);
+      else if (error?.code === "models-empty") showModelStatus("fetchEmpty", {}, true);
+      else showModelStatus("fetchNetwork", {}, true);
+    } finally {
+      fetchingModels = false;
+      button.disabled = false;
+    }
+  }
   /* The provider and reasoning selects are driven by the shared option lists, so
    * the form and the validator cannot drift apart. Their text is translated, so
    * the lists are rebuilt on every language change; the ids never change, so a
@@ -273,8 +343,11 @@ export function createAgentSettings({ section, tab, getLang, onChange, bindingAc
     resetErrors();
     showStatus("dirty");
   });
-  for (const input of Object.values(inputs)) input.addEventListener("input", () => {
+  $("agentModelFetch").addEventListener("click", fetchModels);
+  for (const [name, input] of Object.entries(inputs)) input.addEventListener("input", () => {
     resetErrors();
+    // A list fetched for a previous address or key is no longer evidence.
+    if (["vendor", "endpoint", "apiKey", "provider"].includes(name)) showModelStatus("");
     showStatus("dirty");
   });
   for (const [id, action] of [["targetVerify","verify"],["targetBind","bind"],["targetUnbind","clear"],["targetRegenerate","regenerate"]]) {
@@ -297,6 +370,8 @@ export function createAgentSettings({ section, tab, getLang, onChange, bindingAc
   function refreshLang() {
     for (const el of section.querySelectorAll("[data-ai-setting]")) el.textContent = text(el.dataset.aiSetting);
     fillOptions();
+    // The status was written in the previous language; the fetched options stay.
+    showModelStatus("");
     renderStatus();
   }
   refreshLang();

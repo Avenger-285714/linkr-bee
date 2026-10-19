@@ -311,3 +311,56 @@ test("a provider preset fills the connection and the form says where the key liv
   await page.locator("#agentSettingsClear").tap();
   await expect(page.locator("#agentVendor")).toHaveValue("custom");
 });
+
+/* The presets' model ids go stale, so the form reads the real list once the
+ * address and key are in. The key must go to the provider and nowhere else,
+ * which is why the test asserts the exact request as well as the result. */
+test("the model list is read from the service after the address and key are in", async ({ page }) => {
+  await openSettings(page);
+  const requests = [];
+  await page.route("https://models.test/v1/models", async (route) => {
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*" };
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers });
+      return;
+    }
+    requests.push({ url: route.request().url(), authorization: route.request().headers().authorization });
+    await route.fulfill({ status: 200, headers, contentType: "application/json",
+      body: JSON.stringify({ data: [{ id: "current-small" }, { id: "current-large" }] }) });
+  });
+
+  await page.locator("#agentEndpoint").fill("https://models.test/v1");
+  await page.locator("#agentApiKey").fill("preset-device-key");
+  await expect(page.locator("#agentModelStatus")).toBeHidden();
+  await page.locator("#agentModelFetch").tap();
+
+  await expect(page.locator("#agentModelStatus")).toContainText(/已获取 2 个模型|Found 2 models/);
+  const options = await page.locator("#agentModelOptions option").evaluateAll((els) => els.map((el) => el.value));
+  expect(options).toEqual(["current-large", "current-small"]);
+  expect(requests).toEqual([{ url: "https://models.test/v1/models", authorization: "Bearer preset-device-key" }]);
+
+  // The suggestion is still just text in an editable field until Save.
+  await page.locator("#agentModel").fill("current-large");
+  await page.locator("#agentSettingsSave").tap();
+  await expect(page.locator("#agentSettingsStatus")).toContainText(/已保存|saved/);
+});
+
+test("a refused model list is reported and leaves the model field editable", async ({ page }) => {
+  await openSettings(page);
+  await page.route("https://models.test/v1/models", (route) => route.fulfill({
+    status: 401, headers: { "access-control-allow-origin": "*" }, body: "{}" }));
+  await page.locator("#agentEndpoint").fill("https://models.test/v1");
+  await page.locator("#agentApiKey").fill("bad-key");
+  await page.locator("#agentModelFetch").tap();
+  await expect(page.locator("#agentModelStatus")).toContainText(/无效|invalid/);
+  await expect(page.locator("#agentModelStatus")).toHaveClass(/field-error/);
+  await expect(page.locator("#agentModel")).toBeEditable();
+
+  // A blocked request (CORS or offline) is a different failure, and the advice is
+  // the same: type the model yourself.
+  await page.route("https://blocked.test/v1/models", (route) => route.abort());
+  await page.locator("#agentEndpoint").fill("https://blocked.test/v1");
+  await page.locator("#agentModelFetch").tap();
+  await expect(page.locator("#agentModelStatus")).toContainText(/跨域|blocked/);
+  await expect(page.locator("#agentModel")).toBeEditable();
+});

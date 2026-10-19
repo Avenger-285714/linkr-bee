@@ -1108,6 +1108,17 @@ h1 {
   color: var(--accent-strong);
 }
 
+/* The fetched model list is a suggestion under the key, not a replacement for
+ * the field; a full-width action keeps it clearly separate from Save. */
+.agent-settings .model-fetch {
+  width: 100%;
+  margin-top: 6px;
+}
+
+#agentModelStatus:empty {
+  display: none;
+}
+
 /* ---------- Empty terminal ---------- */
 
 /* Before the first connection the canvas is a black field with nothing on it,

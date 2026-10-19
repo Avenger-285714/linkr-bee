@@ -45,7 +45,13 @@ Ark (Doubao), Groq, OpenRouter, Mistral, xAI, or Ollama on this machine. Choosin
 one fills the base URL, the protocol and a starting model ID; every field stays
 editable, the model is only a suggestion, and **Custom** changes nothing so an
 endpoint can be typed by hand. Then add your own API key (optional for keyless
-local services) and select **Save configuration**. Saving does not
+local services) and select **Save configuration**.
+
+Because provider model IDs churn, **Fetch model list** reads the list the service
+currently offers, using the address, key and extra headers already in the form.
+The ids become suggestions in the model field, which stays editable — a service
+may not expose the endpoint, and a browser request can be blocked (CORS), in
+which case the panel says so and keeps what you typed. Saving does not
 send a model request. Endpoint, model and API key are restored after reloading
 or restarting the app. Re-saving unchanged settings retains the current diagnostic
 conversation; changing the endpoint, model or key resets its model context.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { AGENT_CONFIG_KEY, AGENT_DEFAULT_MAX_TOKENS, AGENT_FIXED_CONTEXT_TOKENS, AGENT_PROVIDERS, AGENT_REASONING_LEVELS, AGENT_VENDOR_CUSTOM, AGENT_VENDORS, isContextWindowTight, loadAgentConfig, minimumUsefulContextWindow, saveAgentConfig, clearAgentConfig, endpointSecurity, isEndpointUnreachable, parseAgentHeaders, formatAgentHeaders, validateAgentConfig, vendorById, vendorForEndpoint } from "../../web/agent_config.js";
+import { AGENT_CONFIG_KEY, AGENT_DEFAULT_MAX_TOKENS, AGENT_FIXED_CONTEXT_TOKENS, AGENT_PROVIDERS, AGENT_REASONING_LEVELS, AGENT_VENDOR_CUSTOM, AGENT_VENDORS, fetchAgentModels, isContextWindowTight, isValidEndpoint, modelsRequest, modelsUrl, parseModels, loadAgentConfig, minimumUsefulContextWindow, saveAgentConfig, clearAgentConfig, endpointSecurity, isEndpointUnreachable, parseAgentHeaders, formatAgentHeaders, validateAgentConfig, vendorById, vendorForEndpoint } from "../../web/agent_config.js";
 
 function storage() {
   const values = new Map();
@@ -278,4 +278,57 @@ test("the form offers a provider list and states where the key is stored", () =>
   const html = readFileSync(new URL("../../web/index.html", import.meta.url), "utf8");
   assert.match(html, /id="agentVendorHint"[^>]*data-ai-setting="vendorHint"/, "the provider hint has its own label");
   assert.match(html, /class="key-note"[\s\S]*data-ai-setting="keyStorage"/, "the key disclosure is rendered next to the field");
+});
+
+/* Model discovery has three different request shapes and three payload shapes.
+ * The preset ids go stale, so this path is what keeps the field current; a
+ * regression here silently turns "fetch" into "list nothing". */
+test("the model list request puts the credential where each protocol reads it", () => {
+  assert.equal(modelsUrl({ endpoint: "https://api.test/v1/" }), "https://api.test/v1/models");
+  const openai = modelsRequest({ endpoint: "https://api.test/v1", apiKey: "k" });
+  assert.equal(openai.headers.Authorization, "Bearer k");
+  assert.equal(modelsRequest({ endpoint: "http://localhost:11434/v1", apiKey: "" }).headers.Authorization, undefined,
+    "a keyless local service sends no empty bearer");
+  const anthropic = modelsRequest({ endpoint: "https://api.anthropic.com/v1", apiKey: "k",
+    provider: "anthropic-messages", headers: { "anthropic-dangerous-direct-browser-access": "true" } });
+  assert.equal(anthropic.headers["x-api-key"], "k");
+  assert.equal(anthropic.headers["anthropic-version"], "2023-06-01");
+  assert.equal(anthropic.headers.Authorization, undefined, "Anthropic does not read a bearer token");
+  const gemini = modelsRequest({ endpoint: "https://g.test/v1beta", apiKey: "k", provider: "google-generative-ai" });
+  assert.equal(gemini.headers["x-goog-api-key"], "k");
+  assert.equal(gemini.url, "https://g.test/v1beta/models");
+});
+
+test("the model list payloads are normalised, deduplicated and chat-only", () => {
+  assert.deepEqual(parseModels({ data: [{ id: "b" }, { id: "a" }, { id: "a" }] }), ["a", "b"]);
+  assert.deepEqual(parseModels({ models: [{ id: "m" }] }), ["m"], "gateways that answer {models} are accepted");
+  assert.deepEqual(parseModels({ models: [
+    { name: "models/gem", supportedGenerationMethods: ["generateContent"] },
+    { name: "models/embed", supportedGenerationMethods: ["embedContent"] },
+    { name: "models/no-methods" },
+  ] }, "google-generative-ai"), ["gem", "no-methods"]);
+  assert.deepEqual(parseModels({}), []);
+});
+
+test("fetch failures are classified so the panel can word them differently", async () => {
+  const ok = async () => ({ ok: true, status: 200, json: async () => ({ data: [{ id: "m" }] }) });
+  assert.deepEqual(await fetchAgentModels({ endpoint: "https://a.test/v1", apiKey: "k" }, ok), ["m"]);
+  const failure = (response) => async () => response;
+  await assert.rejects(fetchAgentModels({ endpoint: "https://a.test/v1" }, failure({ status: 401, ok: false })),
+    { code: "models-unauthorized" });
+  await assert.rejects(fetchAgentModels({ endpoint: "https://a.test/v1" }, failure({ status: 500, ok: false })),
+    { code: "models-http", status: 500 });
+  await assert.rejects(fetchAgentModels({ endpoint: "https://a.test/v1" }, async () => { throw new TypeError("blocked"); }),
+    { code: "models-network" });
+  await assert.rejects(fetchAgentModels({ endpoint: "https://a.test/v1" },
+    failure({ ok: true, status: 200, json: async () => ({ data: [] }) })), { code: "models-empty" });
+});
+
+test("an endpoint the fetch can use is http(s) without credentials, query or fragment", () => {
+  assert.equal(isValidEndpoint("https://api.test/v1"), true);
+  assert.equal(isValidEndpoint("http://localhost:11434/v1"), true);
+  assert.equal(isValidEndpoint("https://user:pass@api.test/v1"), false);
+  assert.equal(isValidEndpoint("https://api.test/v1?key=1"), false);
+  assert.equal(isValidEndpoint("ftp://api.test"), false);
+  assert.equal(isValidEndpoint(""), false);
 });
