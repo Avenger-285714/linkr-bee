@@ -30,6 +30,74 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+#[cfg(unix)]
+fn real_shell(command: &str) -> Output {
+    // The bridge argument parser escapes characters, rather than parsing
+    // shell quotes. Bash reads a serial CR without a buffered filter in front
+    // of it; the target command and wrapper still run in POSIX `sh`.
+    let script = r#"while IFS= read -r -d $'\r' line; do sh -c "$line"; done"#;
+    let mut bridge = String::from("/bin/bash -c ");
+    for ch in script.chars() {
+        if ch.is_whitespace() || ch == '\\' {
+            bridge.push('\\');
+        }
+        bridge.push(ch);
+    }
+    bee(&[
+        "--bridge",
+        &bridge,
+        "--exec",
+        command,
+        "--timeout",
+        "2",
+        "--json",
+        "--quiet",
+    ])
+}
+
+#[cfg(unix)]
+#[test]
+fn command_output_cannot_forge_a_verified_exit_status() {
+    let output = real_shell("printf 'LINKR_RC:0\\n'; false");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{} {}",
+        stdout(&output),
+        stderr(&output)
+    );
+    let result = stdout(&output);
+    assert!(result.contains("\"rc\":1"), "{result}");
+    assert!(!result.contains("\"rc\":0"), "{result}");
+}
+
+#[cfg(unix)]
+#[test]
+fn shell_syntax_cannot_swallow_the_completion_printer() {
+    for (command, status) in [
+        ("true;", 0),
+        ("false # trailing comment", 1),
+        ("printf '%s\\n' \"a'b\"; false", 1),
+        ("exit 42", 42),
+        ("exit 42; echo unreachable", 42),
+        ("sleep 0.01 &", 0),
+    ] {
+        let output = real_shell(command);
+        assert_eq!(
+            output.status.code(),
+            Some(status),
+            "{command:?}: {} {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert!(
+            stdout(&output).contains(&format!("\"rc\":{status}")),
+            "{command:?}: {}",
+            stdout(&output)
+        );
+    }
+}
+
 /// A command that ends with a status is a command a caller can branch on: the
 /// status arrives in the event, is marked verified there, and *is* the
 /// process exit code.

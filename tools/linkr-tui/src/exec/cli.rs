@@ -10,8 +10,8 @@
 //! Two endings exist, and the caller picks one:
 //!
 //! * the **rc marker** (the default): the command is wrapped so the target
-//!   prints `LINKR_RC:<code>` when it finishes, which turns "did it end, and
-//!   how" into one machine-checkable line. A run that never sees the marker
+//!   prints a per-attempt `LINKR_RC_<nonce>:<code>` when it finishes, turning
+//!   "did it end, and how" into one machine-checkable line. A run without the marker
 //!   never reports success — sending is not finishing.
 //! * an **idle window** (`--idle`): the output has been quiet for that long.
 //!   Weaker by construction — a command that is thinking looks like one that is
@@ -43,10 +43,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// waited out is a probe that has already answered "no".
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// The marker the wrapper prints. Printable, and unlikely to end a line by
-/// accident; the wrapper's own echo never matches it, because `$?` is not a
-/// number.
-const MARKER: &str = "LINKR_RC:";
+const MARKER_PREFIX: &str = "LINKR_RC_";
 
 /// How much of the tail is kept. Long enough to hold a marker split across two
 /// reads and the unfinished line a prompt waits on; short enough that a command
@@ -97,13 +94,22 @@ impl Run {
 
 /// The exact bytes `command` becomes on the wire.
 ///
-/// The wrapper is one line and ends with `\r`, which is what a console reading
-/// a line expects: `cmd; echo "LINKR_RC:$?"` runs the command and then prints
-/// the status the shell gave it — the last status of the command's own last
-/// segment, which is what `$?` has always meant.
+/// Run the quoted command in its own shell so trailing separators, comments
+/// and `exit` cannot consume the status printer in the console's outer shell.
 pub fn wire(command: &str, ending: Ending) -> Vec<u8> {
+    wire_with_marker(command, ending, &completion_marker())
+}
+
+fn completion_marker() -> String {
+    format!("{MARKER_PREFIX}{}", uuid::Uuid::new_v4().simple())
+}
+
+fn wire_with_marker(command: &str, ending: Ending, token: &str) -> Vec<u8> {
     match ending {
-        Ending::RcMarker => format!("{command}; echo \"{MARKER}$?\"\r").into_bytes(),
+        Ending::RcMarker => {
+            let quoted = command.replace('\'', "'\"'\"'");
+            format!("sh -c '{quoted}'; printf '\\n%s:%s\\n' '{token}' \"$?\"\r").into_bytes()
+        }
         Ending::Idle(_) => format!("{command}\r").into_bytes(),
     }
 }
@@ -257,7 +263,8 @@ fn attempt_once(app: &mut App, run: &Run, format: Format, quiet: bool) -> Attemp
     // Anything already buffered belongs to whoever spoke before this run; it
     // must not be counted as this command's output.
     app.take_output();
-    let wire = run.wire();
+    let token = completion_marker();
+    let wire = wire_with_marker(&run.command, run.ending, &token);
     if !app.send_bytes(&wire) {
         return Attempt {
             outcome: Outcome::Refused(app.strings().not_connected.to_string()),
@@ -286,8 +293,10 @@ fn attempt_once(app: &mut App, run: &Run, format: Format, quiet: bool) -> Attemp
         }
         // The answer wins over the hang-up: a link that died after the marker
         // arrived still brought the marker.
-        if let Some(status) = marker(&tail) {
-            break Outcome::Rc(status);
+        if run.ending == Ending::RcMarker {
+            if let Some(status) = marker(&tail, &token) {
+                break Outcome::Rc(status);
+            }
         }
         if let Some(prompt) = prompt_waiting(&tail) {
             break Outcome::NeedsInput(prompt);
@@ -337,24 +346,23 @@ fn recheck(app: &mut App, run: &Run) -> bool {
 
 /// The exit status the target printed, when the marker has arrived.
 ///
-/// The digits must follow the marker directly, which is what keeps the echo of
-/// the wrapper from matching: the console echoes `echo "LINKR_RC:$?"` as it was
-/// typed, and `$?` is not a number.
-fn marker(tail: &[u8]) -> Option<i32> {
-    let text = String::from_utf8_lossy(tail);
-    let mut from = 0;
-    while let Some(at) = text[from..].find(MARKER) {
-        let after = from + at + MARKER.len();
-        let digits: String = text[after..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
-        if let Ok(status) = digits.parse::<i32>() {
-            return Some(status);
-        }
-        from = after;
-    }
-    None
+/// Require this attempt's complete marker line. A partial status such as the
+/// first `1` of `127`, an echoed command, or an earlier run is not completion.
+fn marker(tail: &[u8], token: &str) -> Option<i32> {
+    tail.split_inclusive(|byte| *byte == b'\n')
+        .find_map(|line| {
+            let line = line.strip_suffix(b"\n")?;
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
+            let digits = line.strip_prefix(token.as_bytes())?.strip_prefix(b":")?;
+            if digits.is_empty() || digits.len() > 3 || !digits.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            std::str::from_utf8(digits)
+                .ok()?
+                .parse::<u8>()
+                .ok()
+                .map(i32::from)
+        })
 }
 
 /// The prompt the target is waiting on, when the line it has not finished
@@ -561,8 +569,8 @@ mod tests {
     #[test]
     fn the_wrapper_is_one_line_and_ends_with_enter() {
         assert_eq!(
-            wire("df -h", Ending::RcMarker),
-            b"df -h; echo \"LINKR_RC:$?\"\r"
+            wire_with_marker("df -h", Ending::RcMarker, "LINKR_RC_test"),
+            b"sh -c 'df -h'; printf '\\n%s:%s\\n' 'LINKR_RC_test' \"$?\"\r"
         );
         assert_eq!(
             wire("df -h", Ending::Idle(Duration::from_millis(400))),
@@ -572,15 +580,47 @@ mod tests {
 
     #[test]
     fn the_marker_must_be_a_status_the_shell_could_have_said() {
-        // The echo of the wrapper is on the wire too, and `$?` is not a
-        // number — which is exactly what keeps it from matching.
-        assert_eq!(marker(b"df -h; echo \"LINKR_RC:$?\"\r\n"), None);
-        // The answer, when the command is done.
-        assert_eq!(marker(b"ok\r\nLINKR_RC:0\r\nlinkr@bee:~$ "), Some(0));
-        assert_eq!(marker(b"LINKR_RC:127"), Some(127));
-        // A marker split across two reads is why the tail is kept at all.
-        assert_eq!(marker(b"...LINKR_RC:"), None);
-        assert_eq!(marker(b"...LINKR_RC:4"), Some(4));
+        const TOKEN: &str = "LINKR_RC_this_attempt";
+        assert_eq!(
+            marker(b"ok\r\nLINKR_RC_this_attempt:0\r\nlinkr@bee:~$ ", TOKEN),
+            Some(0)
+        );
+        assert_eq!(marker(b"LINKR_RC_this_attempt:127\n", TOKEN), Some(127));
+        for text in [
+            "LINKR_RC:0\n",
+            "LINKR_RC_other_attempt:0\n",
+            "prefix LINKR_RC_this_attempt:0\n",
+            "LINKR_RC_this_attempt:1",
+            "LINKR_RC_this_attempt:127",
+            "LINKR_RC_this_attempt:256\n",
+            "LINKR_RC_this_attempt:0junk\n",
+            "LINKR_RC_this_attempt:0\r",
+        ] {
+            assert_eq!(marker(text.as_bytes(), TOKEN), None, "{text:?}");
+        }
+        let echo = wire_with_marker("printf 'LINKR_RC:0\\n'; false", Ending::RcMarker, TOKEN);
+        assert_eq!(marker(&echo, TOKEN), None);
+    }
+
+    #[test]
+    fn every_attempt_has_a_different_completion_marker() {
+        assert_ne!(
+            wire("true", Ending::RcMarker),
+            wire("true", Ending::RcMarker)
+        );
+    }
+
+    #[test]
+    fn split_marker_status_waits_for_its_line_ending() {
+        let line = b"\r\nLINKR_RC_fragmented:127\r\n";
+        for end in 0..line.len() {
+            assert_eq!(
+                marker(&line[..end], "LINKR_RC_fragmented"),
+                None,
+                "prefix length {end}"
+            );
+        }
+        assert_eq!(marker(line, "LINKR_RC_fragmented"), Some(127));
     }
 
     #[test]
@@ -691,6 +731,19 @@ mod tests {
         // Not 0: the output went quiet, which is what `--idle` asked for, but
         // no status was read — and a script's `&&` must not read one into it.
         assert_eq!(exit_code(&attempt.outcome), 1);
+    }
+
+    #[test]
+    fn idle_mode_never_reads_a_printed_status_marker() {
+        let mut app = loopback_app();
+        let run = Run {
+            ending: Ending::Idle(Duration::from_millis(80)),
+            ..shell("printf 'LINKR_RC:0\\n'")
+        };
+        assert_eq!(
+            attempt_once(&mut app, &run, Format::Text, false).outcome,
+            Outcome::Idle
+        );
     }
 
     #[test]

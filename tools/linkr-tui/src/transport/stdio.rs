@@ -265,9 +265,9 @@ impl LoopbackDevice {
     /// The reply to one complete line, as the board would print it.
     ///
     /// A hair more shell than the banner admits, because the CLI's `exec`
-    /// contract (`cmd; echo "LINKR_RC:$?"`) has to be answerable without
-    /// hardware: `echo`, `printf`, `true`, `false`, `exit`, `$?` and
-    /// `;`-separated lists are understood, quotes group words the way a
+    /// contract (a quoted `sh -c` followed by a status printer) has to be
+    /// answerable without hardware: `echo`, `printf`, `true`, `false`, `exit`,
+    /// `$?` and `;`-separated lists are understood, quotes group words the way a
     /// shell's do, and a `sleep` or a `sudo` password prompt is left hanging
     /// the way a real one would be. The banner's own commands keep their
     /// exact answers, and anything else stays "not found".
@@ -278,31 +278,30 @@ impl LoopbackDevice {
     /// words, because a rehearsal that passes offline what the board would
     /// fail is worse than one that says what it cannot do. See
     /// [`unsupported`].
-    ///
-    /// One deliberate difference from a real shell: `exit N` ends *the
-    /// command* with status N and the rest of the line still runs. The CLI
-    /// wraps a command as `cmd; echo "LINKR_RC:$?"`, so an `exit` that took
-    /// the console down would swallow the status echo and make the exit path
-    /// untestable offline; on a real target that is what happens, and the
-    /// timeout is the honest answer there.
     fn reply(&self, line: &str) {
         let command = line.trim();
         if command.is_empty() {
             return;
         }
+        if self.run_list(command).is_some() {
+            self.push(PROMPT);
+        }
+    }
+
+    fn run_list(&self, command: &str) -> Option<i32> {
         let mut status = 0;
         for segment in segments(command) {
-            match self.run_segment(segment.trim(), status) {
-                Some(next) => status = next,
-                // A segment that keeps the shell waiting — a sleep, or a
-                // terminal reading a password — means nothing after it on
-                // the line runs and no prompt comes back until the far side
-                // types. The exec contract's timeout and needs_input paths
-                // are what this is for.
-                None => return,
+            // A sleep or password prompt keeps the shell waiting, so later
+            // segments and the prompt must wait too.
+            status = self.run_segment(segment.trim(), status)?;
+            if words(segment.trim())
+                .first()
+                .is_some_and(|word| word == "exit")
+            {
+                break;
             }
         }
-        self.push(PROMPT);
+        Some(status)
     }
 
     /// Run one `;`-list segment. `None` when the segment left the shell
@@ -321,7 +320,13 @@ impl LoopbackDevice {
             ));
             return Some(2);
         }
-        let words: Vec<String> = words(segment)
+        let parsed = words(segment);
+        // The single-quoted child script must reach its own shell before `$?`
+        // is expanded; it does not belong to the outer shell's last status.
+        if parsed.len() == 3 && parsed[0] == "sh" && parsed[1] == "-c" {
+            return self.run_list(&parsed[2]);
+        }
+        let words: Vec<String> = parsed
             .into_iter()
             .map(|word| word.replace("$?", &status.to_string()))
             .collect();
@@ -1058,17 +1063,17 @@ mod tests {
         assert!(text.starts_with("a\r\nb\tdone % 7"), "{text:?}");
     }
 
-    /// `exit N` ends the command with status N — and the wrapper's own echo,
-    /// which is what carries the status to the CLI, still runs after it.
+    /// `exit N` ends only the child shell; the outer status printer still runs.
     #[test]
     fn exit_sets_the_status_the_wrapper_reads() {
         let device = LoopbackDevice::default();
-        device.reply("exit 42; echo \"LINKR_RC:$?\"");
+        device.reply("sh -c 'exit 42; echo unreachable'; echo \"LINKR_RC:$?\"");
         let text = outbox(&device);
         assert!(text.contains("LINKR_RC:42"), "{text:?}");
+        assert!(!text.contains("unreachable"), "{text:?}");
         // And a bare `exit` is status zero, the way a shell means it.
         let device = LoopbackDevice::default();
-        device.reply("exit; echo \"LINKR_RC:$?\"");
+        device.reply("sh -c 'exit'; echo \"LINKR_RC:$?\"");
         let text = outbox(&device);
         assert!(text.contains("LINKR_RC:0"), "{text:?}");
     }

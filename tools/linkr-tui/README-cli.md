@@ -66,6 +66,12 @@ WebDAV upload is part of the protocol, but a particular firmware build may
 leave it out (the ESP32-WROOM build disables it for DRAM). In that case the
 board's own error is reported; the host does not hide the request.
 
+`--exec` runs the command in a child POSIX `sh` and uses `printf` to emit a
+unique completion marker for each attempt. Only a complete marker line for
+that attempt confirms the exit status. Changes to the child shell's working
+directory or variables do not persist in the serial console's parent shell.
+With `--idle`, output is returned without a verified exit status.
+
 ## Keep a session open
 
 `--serve` dials once and answers JSON requests from standard input until the

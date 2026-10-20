@@ -36,6 +36,8 @@
 //! existing one-shot machinery with the process held open around it, which is
 //! what makes it small enough to trust with a board on the far end.
 
+use std::io::{self, BufRead, BufReader, Read};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 use crate::app::App;
@@ -50,6 +52,45 @@ use crate::transport::LinkKind;
 /// The same three seconds `--loopback-test` gets from the command line, kept
 /// in step with it by hand: the request is the flag, spelled in JSON.
 const DEFAULT_LOOPBACK_TIMEOUT: Duration = Duration::from_secs(3);
+const IDLE_POLL: Duration = Duration::from_millis(20);
+
+fn request_reader(input: impl Read + Send + 'static) -> Receiver<io::Result<String>> {
+    let (sender, requests) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut input = BufReader::new(input);
+        loop {
+            let mut line = String::new();
+            let result = match input.read_line(&mut line) {
+                Ok(0) => return,
+                Ok(_) => Ok(line),
+                Err(error) => Err(error),
+            };
+            let failed = result.is_err();
+            if sender.send(result).is_err() || failed {
+                return;
+            }
+        }
+    });
+    requests
+}
+
+fn wait_for_request(
+    app: &mut App,
+    requests: &Receiver<io::Result<String>>,
+) -> io::Result<Option<String>> {
+    // Idle UART bytes belong in the bounded terminal/journal, not the last
+    // command's output collector or an undrained transport queue.
+    app.collect_output = false;
+    app.take_output();
+    loop {
+        app.pump();
+        match requests.recv_timeout(IDLE_POLL) {
+            Ok(line) => return line.map(Some),
+            Err(RecvTimeoutError::Disconnected) => return Ok(None),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
 
 /// The operations a session answers, in the order the ready line lists them.
 ///
@@ -162,16 +203,14 @@ pub fn run(app: &mut App, dial: Option<Dial>, connect: Duration, program: &str) 
         ])
     );
 
-    let stdin = std::io::stdin();
-    let mut line = String::new();
+    let requests = request_reader(std::io::stdin());
     loop {
-        line.clear();
-        match stdin.read_line(&mut line) {
+        let line = match wait_for_request(app, &requests) {
             // End of input: the caller stopped listening. That is the
             // session's own hang-up — a caller that wanted an answer would
             // have kept the pipe open — and the link goes down with it.
-            Ok(0) => break,
-            Ok(_) => {}
+            Ok(None) => break,
+            Ok(Some(line)) => line,
             Err(why) => {
                 eprintln!("error: the session could not read its input: {why}");
                 // Ended out loud rather than merely dropped: the caller's pipe
@@ -180,7 +219,7 @@ pub fn run(app: &mut App, dial: Option<Dial>, connect: Duration, program: &str) 
                 app.hang_up(crate::hangup::EXIT_GRACE);
                 return 2;
             }
-        }
+        };
         let text = line.trim();
         if text.is_empty() {
             continue;
@@ -876,6 +915,43 @@ mod tests {
 
     fn request(line: &str) -> Request {
         parse_request(line).expect("the request parses")
+    }
+
+    #[test]
+    fn idle_sessions_consume_uart_without_accumulating_command_output() {
+        let wire = crate::transport::testing::MemoryLink::new();
+        let mut app = App::default();
+        app.session.connect(wire.link()).expect("memory link opens");
+        app.collect_output = true;
+        let (sender, requests) = mpsc::sync_channel(1);
+        let device = wire.clone();
+        let producer = std::thread::spawn(move || {
+            for _ in 0..20 {
+                device.feed(b"idle UART output\r\n");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            std::thread::sleep(Duration::from_millis(80));
+            sender
+                .send(Ok("{\"op\":\"state\"}\n".to_string()))
+                .expect("request");
+        });
+        let line = wait_for_request(&mut app, &requests)
+            .expect("read request")
+            .expect("one line");
+        assert!(line.contains("state"));
+        assert_eq!(app.session.rx(), 20 * b"idle UART output\r\n".len() as u64);
+        assert!(!app.collect_output);
+        assert!(app.take_output().is_empty());
+        producer.join().expect("producer");
+        wire.close();
+    }
+
+    #[test]
+    fn request_reader_preserves_lines_and_reports_eof() {
+        let requests = request_reader(io::Cursor::new(b"first\nsecond\n"));
+        assert_eq!(requests.recv().unwrap().unwrap(), "first\n");
+        assert_eq!(requests.recv().unwrap().unwrap(), "second\n");
+        assert!(requests.recv().is_err());
     }
 
     #[test]

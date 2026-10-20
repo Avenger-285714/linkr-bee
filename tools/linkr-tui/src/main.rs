@@ -1006,7 +1006,7 @@ fn capabilities(prog: &str, json: bool) -> String {
                 "\"defaults\":{{\"scan_timeout_ms\":{},\"connect_timeout_ms\":{},",
                 "\"exec_timeout_ms\":{}}},",
                 "\"exec\":{{\"endings\":[\"rc-marker\",\"idle\"],",
-                "\"marker\":\"cmd; echo \\\"LINKR_RC:$?\\\"\",",
+                "\"marker\":\"per-attempt LINKR_RC_<nonce>:<status> line after sh -c\",",
                 "\"codes\":[\"needs_input\",\"timeout\",\"link_lost\",\"not_connected\"],",
                 "\"retry\":\"off; --retry N resends after a timeout, after reading state\"}},",
                 "\"session\":{{\"flag\":\"--serve\",\"ops\":{},\"codes\":[\"bad_request\",",
