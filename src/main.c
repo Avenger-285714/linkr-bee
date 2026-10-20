@@ -28,12 +28,17 @@
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/ring_buffer.h>
+#if IS_ENABLED(CONFIG_SYS_HEAP_RUNTIME_STATS)
+#include <zephyr/sys/sys_heap.h>
+#endif
 #include <zephyr/version.h>
 
 #include "target_binding.h"
 #include "ble_mgmt.h"
 #include "ble_uart_reliable.h"
 #include "wifi.h"
+#include "uart_autobaud.h"
+#include "uart_bulk_tx.h"
 #include "ws_bridge.h"
 
 LOG_MODULE_REGISTER(linkr_ble_bridge, LOG_LEVEL_INF);
@@ -144,6 +149,12 @@ static struct {
 static atomic_t uart_rx_dropped;
 static atomic_t uart_reliable_drop_no_conn;
 #endif
+/* Bytes linkr_uart_write() refused because ble_to_uart_queue was full.
+ * Reported as "@info queue dropped=": the third drop point in
+ * docs/BRIDGE_QUEUE_FINDINGS.md had no counter at all, and its only report
+ * was a LOG_WRN that the board's ERR-only log level swallowed, so upstream
+ * loss was completely unobservable on this board. */
+static atomic_t uart_queue_dropped;
 static struct uart_config active_uart_config = {
 	.baudrate = CONFIG_LINKR_BLE_BRIDGE_UART_BAUD_RATE,
 	.parity = DEFAULT_UART_PARITY,
@@ -152,11 +163,31 @@ static struct uart_config active_uart_config = {
 	.flow_ctrl = DEFAULT_UART_FLOW_CONTROL,
 };
 
-K_MSGQ_DEFINE(ble_to_uart_queue, sizeof(struct bridge_packet),
-		      CONFIG_LINKR_BLE_BRIDGE_BLE_TO_UART_QUEUE_DEPTH, 4);
+/* Queue backing store in .bss instead of __noinit. K_MSGQ_DEFINE puts it in
+ * __noinit, which the ESP32 linker script maps to dram1_0_seg — the output
+ * section is *named* .dram0.noinit, but the map links it at 0x3ffe8000, i.e.
+ * inside the 98304 B dram1_0_seg; .bss lands in dram0_0_seg
+ * (0x3ffbdb5c/0x224a4), the roomier of the two at the time of the change
+ * (27896 B free against 9252 B — both measured on the 90285d5 build of this
+ * same board). This is an exact expansion of K_MSGQ_DEFINE (same
+ * STRUCT_SECTION_ITERABLE entry, same static initializer, same alignment)
+ * with only the buffer's placement changed: contents never need to survive
+ * reset. */
+static uint8_t __aligned(4)
+	ble_to_uart_storage[sizeof(struct bridge_packet) *
+			    CONFIG_LINKR_BLE_BRIDGE_BLE_TO_UART_QUEUE_DEPTH];
+STRUCT_SECTION_ITERABLE(k_msgq, ble_to_uart_queue) =
+	Z_MSGQ_INITIALIZER(ble_to_uart_queue, ble_to_uart_storage,
+			   sizeof(struct bridge_packet),
+			   CONFIG_LINKR_BLE_BRIDGE_BLE_TO_UART_QUEUE_DEPTH);
 K_MUTEX_DEFINE(ble_to_uart_queue_lock);
 K_SEM_DEFINE(bridge_start_sem, 0, 5);
-RING_BUF_DECLARE(uart_rx_ring, UART_RX_BUFFER_SIZE);
+/* Same relocation as ble_to_uart_storage above: RING_BUF_DECLARE declares the
+ * byte array as __noinit (dram1), this keeps every field of the initializer
+ * but places the array in .bss (dram0). */
+static uint8_t uart_rx_storage[UART_RX_BUFFER_SIZE];
+struct ring_buf uart_rx_ring =
+	RING_BUF_INIT(uart_rx_storage, UART_RX_BUFFER_SIZE);
 K_SEM_DEFINE(uart_rx_sem, 0, 1);
 
 #if IS_ENABLED(CONFIG_LINKR_BLE_BRIDGE_TEST_UART_LOOPBACK_VERIFY) || \
@@ -907,6 +938,111 @@ static int apply_uart_config(const struct uart_config *cfg)
 	return err;
 }
 
+#if LINKR_UART_AUTOBAUD
+/*
+ * uart_autobaud.c is a separate translation unit and must not reach into this
+ * file's state. The configuration readers and reconfigure path below keep
+ * access to the active port configuration under its owning mutex.
+ */
+uint32_t linkr_uart_config_current(void)
+{
+	uint32_t baudrate;
+
+	/*
+	 * Under the same lock that guards every other reader and the one
+	 * writer. The struct is assigned as a whole in apply_uart_config()
+	 * while the lock is held, and the autobaud tick runs on the system
+	 * workqueue, so an unlocked read can land between the assignment's
+	 * members and report a rate the port was never set to.
+	 */
+	k_mutex_lock(&uart_config_lock, K_FOREVER);
+	baudrate = active_uart_config.baudrate;
+	k_mutex_unlock(&uart_config_lock);
+
+	return baudrate;
+}
+
+uint32_t linkr_uart_config_frame_half_bits(void)
+{
+	struct uart_config cfg;
+	uint32_t data_bits, stop_half_bits;
+
+	k_mutex_lock(&uart_config_lock, K_FOREVER);
+	cfg = active_uart_config;
+	k_mutex_unlock(&uart_config_lock);
+
+	switch (cfg.data_bits) {
+	case UART_CFG_DATA_BITS_5:
+		data_bits = 5;
+		break;
+	case UART_CFG_DATA_BITS_6:
+		data_bits = 6;
+		break;
+	case UART_CFG_DATA_BITS_7:
+		data_bits = 7;
+		break;
+	case UART_CFG_DATA_BITS_8:
+		data_bits = 8;
+		break;
+	default:
+		data_bits = 9;
+		break;
+	}
+	switch (cfg.stop_bits) {
+	case UART_CFG_STOP_BITS_0_5:
+		stop_half_bits = 1;
+		break;
+	case UART_CFG_STOP_BITS_1:
+		stop_half_bits = 2;
+		break;
+	case UART_CFG_STOP_BITS_1_5:
+		stop_half_bits = 3;
+		break;
+	default:
+		stop_half_bits = 4;
+		break;
+	}
+
+	return 2u * (1u + data_bits + (cfg.parity != UART_CFG_PARITY_NONE)) +
+	       stop_half_bits;
+}
+
+int linkr_uart_config_reconfigure(uint32_t baudrate)
+{
+	struct uart_config cfg;
+
+	k_mutex_lock(&uart_config_lock, K_FOREVER);
+	cfg = active_uart_config;
+	k_mutex_unlock(&uart_config_lock);
+	cfg.baudrate = baudrate;
+
+	return apply_uart_config(&cfg);
+}
+#endif /* LINKR_UART_AUTOBAUD */
+
+/* Heap headroom. The system heap is the largest single RAM allocation here and
+ * nothing reported it before, so its size could not be justified from real
+ * numbers: "peak" is what decides whether HEAP_MEM_POOL_SIZE should grow.
+ * Compiled only where CONFIG_SYS_HEAP_RUNTIME_STATS is enabled (ESP32 board).
+ */
+#if IS_ENABLED(CONFIG_SYS_HEAP_RUNTIME_STATS)
+static void heap_status_response(struct bt_conn *conn)
+{
+	struct k_heap *heaps = NULL;
+	struct sys_memory_stats stats;
+
+	if (k_heap_array_get(&heaps) < 1 ||
+	    sys_heap_runtime_stats_get(&heaps[0].heap, &stats) != 0) {
+		return;
+	}
+	(void)send_control_response(conn,
+				    "@info heap free=%u used=%u peak=%u\r\n",
+				    (unsigned int)stats.free_bytes,
+				    (unsigned int)stats.allocated_bytes,
+				    (unsigned int)stats.max_allocated_bytes);
+}
+#endif
+
 static void diagnostics_response(struct bt_conn *conn)
 {
 	char status[192];
@@ -936,6 +1072,31 @@ static void diagnostics_response(struct bt_conn *conn)
 	(void)send_control_response(conn, "@info upload %s\r\n", status);
 	(void)linkr_ws_diagnostics(status, sizeof(status));
 	(void)send_control_response(conn, "@info ws %s\r\n", status);
+	/* Third drop point: BLE/WS RX -> UART. Its own group so the six web
+	 * rows stay untouched (extra groups are already tolerated by the TUI
+	 * and the web parser, both key on the group name). */
+	(void)send_control_response(conn, "@info queue dropped=%u\r\n",
+				    (unsigned int)atomic_get(&uart_queue_dropped));
+	{
+		/* Whether the 40-92 ms handoff stalls come from the -EBUSY/-ENOMEM
+		 * retry backoff (slept_ms) or from waiting on the peer (wait_max_ms).
+		 * Its own group, like `queue`, so existing parsers stay intact.
+		 * See ble_uart_reliable.c for what each counter means. */
+		uint32_t ind_total, ind_retry, ind_busy, ind_nomem;
+		uint32_t ind_slept, ind_timeout, ind_wait_max;
+
+		linkr_uart_reliable_diag(&ind_total, &ind_retry, &ind_busy,
+					 &ind_nomem, &ind_slept, &ind_timeout,
+					 &ind_wait_max);
+		(void)send_control_response(conn,
+					    "@info rel ind=%u retry=%u busy=%u nomem=%u slept_ms=%u timeout=%u wait_max_ms=%u\r\n",
+					    ind_total, ind_retry, ind_busy,
+					    ind_nomem, ind_slept, ind_timeout,
+					    ind_wait_max);
+	}
+#if IS_ENABLED(CONFIG_SYS_HEAP_RUNTIME_STATS)
+	heap_status_response(conn);
+#endif
 	(void)send_control_response(conn, "@info done\r\n");
 }
 
@@ -1387,6 +1548,8 @@ int linkr_uart_write(const uint8_t *data, size_t len)
 	packets_needed = DIV_ROUND_UP(len, sizeof(packet.data));
 	k_mutex_lock(&ble_to_uart_queue_lock, K_FOREVER);
 	if (k_msgq_num_free_get(&ble_to_uart_queue) < packets_needed) {
+		/* Nothing was enqueued: the whole write is lost. */
+		atomic_add(&uart_queue_dropped, len);
 		err = -ENOMEM;
 		goto out;
 	}
@@ -1397,6 +1560,9 @@ int linkr_uart_write(const uint8_t *data, size_t len)
 
 		err = k_msgq_put(&ble_to_uart_queue, &packet, K_NO_WAIT);
 		if (err) {
+			/* `len` still covers this packet plus everything after
+			 * it, none of which reached the queue. */
+			atomic_add(&uart_queue_dropped, len);
 			break;
 		}
 
@@ -1418,9 +1584,29 @@ static void ble_to_uart_thread(void)
 	for (;;) {
 		k_msgq_get(&ble_to_uart_queue, &packet, K_FOREVER);
 
+#if LINKR_UART_BULK_TX
+		/*
+		 * Same bytes, same order, same completion guarantee as the
+		 * uart_poll_out loop below — the difference is one write to
+		 * the FIFO instead of 244 single-byte trips through the
+		 * driver. The rate is read under the same lock every other
+		 * reader uses, because autobaud can move the port underneath
+		 * us. Boards with the option off compile the loop below
+		 * unchanged.
+		 */
+		uint32_t baudrate;
+
+		k_mutex_lock(&uart_config_lock, K_FOREVER);
+		baudrate = active_uart_config.baudrate;
+		k_mutex_unlock(&uart_config_lock);
+
+		linkr_uart_bulk_write(DT_REG_ADDR(LINKR_UART_NODE), baudrate,
+				      packet.data, packet.len);
+#else
 		for (uint16_t i = 0; i < packet.len; i++) {
 			uart_poll_out(bridge_uart, packet.data[i]);
 		}
+#endif
 
 		signal_uart_activity();
 	}
@@ -1428,7 +1614,11 @@ static void ble_to_uart_thread(void)
 
 static int nus_send_conn(struct bt_conn *conn, const uint8_t *data, uint16_t len)
 {
-	uint16_t mtu_payload = bt_gatt_get_mtu(conn) - 3;
+	uint16_t mtu = bt_gatt_get_mtu(conn);
+	/* An unexchanged MTU reads back as 0, and `0 - 3` in uint16_t wraps to
+	 * 65533; clamp before subtracting so the chunk size is never taken from
+	 * the wrapped value. */
+	uint16_t mtu_payload = mtu > 3 ? mtu - 3 : 1;
 	uint16_t acl_payload = CONFIG_BT_BUF_ACL_TX_SIZE > 7 ?
 			       CONFIG_BT_BUF_ACL_TX_SIZE - 7 : 1;
 
@@ -1522,6 +1712,17 @@ static int uart_forward_chunk(const uint8_t *data, uint16_t len,
 			 */
 			return 0;
 		}
+	} else if (err == -EINVAL) {
+		/* The reliable path rejects a payload larger than its limit with
+		 * -EINVAL, and this thread retries a failed chunk in place: that
+		 * would wedge the thread for good and stop it feeding the log ring
+		 * and the LAN bridge. The chunk is already staged above, so drop
+		 * only the BLE copy and keep draining. Reachable only if
+		 * LINKR_BLE_BRIDGE_UART_RX_CHUNK is raised past 232.
+		 */
+		LOG_WRN("Dropping %u UART bytes the reliable path cannot carry",
+			len);
+		return 0;
 	} else if (err) {
 		LOG_WRN("Reliable UART delivery retry: %d", err);
 	}
@@ -1556,6 +1757,9 @@ static void uart_to_ble_thread(void)
 				dropped);
 		}
 
+		/* Keep the only consumer running even when the ring is full.
+		 * Pausing it cannot backpressure the producer: the RX interrupt
+		 * still drains the hardware FIFO into this ring. */
 		if (len == sizeof(buf)) {
 			if (!uart_forward_chunk(buf, len, &accounted)) {
 				len = 0;
@@ -1753,6 +1957,14 @@ int main(void)
 		LOG_ERR("Bridge UART configuration failed: %d", err);
 		return err;
 	}
+
+	/* After the port, as uart_autobaud.h's contract says ("Must be called
+	 * once, after the port has been configured"). Arming first meant the
+	 * detector was already counting against a port nobody had programmed
+	 * yet, and a boot whose configure failed still armed a follower that
+	 * would later reprogram the port on its own. The first window is only
+	 * meaningful once there is a rate to measure against. */
+	linkr_uart_autobaud_init(DT_REG_ADDR(LINKR_UART_NODE));
 
 #if defined(ACTIVITY_LED_NODE)
 	if (!device_is_ready(activity_led.port)) {
