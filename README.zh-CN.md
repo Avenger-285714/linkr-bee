@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/radxa/linkr-bee/stargazers"><img src="https://img.shields.io/github/stars/radxa/linkr-bee.svg?style=flat" alt="GitHub Stars 数量"></a>
+  <a href="https://github.com/radxa/linkr-bee/actions/workflows/build.yml"><img src="https://github.com/radxa/linkr-bee/actions/workflows/build.yml/badge.svg?branch=main" alt="固件和 Web 构建状态"></a>
+  <a href="https://github.com/radxa/linkr-bee/actions/workflows/linkr-tui.yml"><img src="https://github.com/radxa/linkr-bee/actions/workflows/linkr-tui.yml/badge.svg?branch=main" alt="CLI 和 TUI 构建状态"></a>
+</p>
+
+<p align="center">
   <a href="README.md">English</a> ·
   <a href="docs/USAGE.zh-CN.md">使用指南</a> ·
   <a href="docs/README.zh-CN.md">文档索引</a> ·
@@ -45,6 +51,9 @@ Linkr Bee 让这条控制台随时可连，不用常驻一根 USB 串口线、�
 | Android / iOS App | 原生 BLE 与共享触控终端 | [移动端](mobile/README.md)（英文） |
 | HarmonyOS NEXT App | 手机和平板布局、原生 BLE 宿主 | [鸿蒙客户端](harmonyos/README.md)（英文） |
 | Python / C 终端 | 现有桌面脚本与 Linux / Buildroot 集成 | [终端工具](docs/DEVELOPMENT.zh-CN.md#ble-终端) |
+
+RISC-V 64 位和 LoongArch64 Linux 的 CLI/TUI 移植具备基础条件，尚未提供 v0.1 安装包。
+依赖、构建缺口与待验证项见[架构支持评估](docs/CLI_ARCHITECTURES.zh-CN.md)。
 
 下方手机截图展示共享 Web 界面的响应式布局，不代表已完成对应平台的真机验证；各端
 验证范围见平台文档。

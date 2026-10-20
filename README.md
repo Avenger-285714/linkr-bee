@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/radxa/linkr-bee/stargazers"><img src="https://img.shields.io/github/stars/radxa/linkr-bee.svg?style=flat" alt="GitHub Stars"></a>
+  <a href="https://github.com/radxa/linkr-bee/actions/workflows/build.yml"><img src="https://github.com/radxa/linkr-bee/actions/workflows/build.yml/badge.svg?branch=main" alt="Firmware and web build status"></a>
+  <a href="https://github.com/radxa/linkr-bee/actions/workflows/linkr-tui.yml"><img src="https://github.com/radxa/linkr-bee/actions/workflows/linkr-tui.yml/badge.svg?branch=main" alt="CLI and TUI build status"></a>
+</p>
+
+<p align="center">
   <a href="README.zh-CN.md">中文</a> ·
   <a href="docs/USAGE.md">User guide</a> ·
   <a href="docs/README.md">Documentation</a> ·
@@ -51,6 +57,10 @@ All clients reach the same accessory; choose the workflow that suits your host.
 | Android / iOS app | Native BLE with the shared touch terminal | [Mobile app](mobile/README.md) |
 | HarmonyOS NEXT app | Phone and tablet layouts with a native BLE host | [HarmonyOS client](harmonyos/README.md) |
 | Python / C terminal | Existing desktop scripts and Linux / Buildroot integration | [Terminal tools](docs/DEVELOPMENT.md#ble-terminal) |
+
+RISC-V 64-bit and LoongArch64 Linux are prospective CLI/TUI ports, not published
+v0.1 targets. See the [architecture assessment](docs/CLI_ARCHITECTURES.zh-CN.md)
+(Chinese) for dependencies and remaining build/runtime validation.
 
 The mobile screenshots below show the shared responsive web UI, not proof of a
 physical-device test. See each platform guide for its validation status.
