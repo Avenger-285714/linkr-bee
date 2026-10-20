@@ -1370,10 +1370,85 @@ mod tests {
         );
     }
 
+    #[test]
+    fn network_focus_remains_visible_beyond_a_long_scan_list() {
+        use crate::views::network::NetworkRow;
+
+        for (width, height, results) in [(80, 24, 10), (120, 30, 20), (80, 12, 20)] {
+            let mut app = App {
+                lang: Lang::En,
+                view: View::Network,
+                ..App::default()
+            };
+            app.network.scan_results = (0..results)
+                .map(|i| format!("Network-{i} wpa2 ch=6 -54dBm"))
+                .collect();
+            // Extra lines must not shift the focus out of the viewport.
+            app.network.loading = true;
+            app.network.error = Some("Previous request failed".to_string());
+            for (focus, label) in [
+                (
+                    NetworkRow::ScanResult(results - 1),
+                    format!("Network-{}", results - 1),
+                ),
+                (NetworkRow::Url, "Upload URL".to_string()),
+                (NetworkRow::WebdavSet, "[Set WebDAV]".to_string()),
+                (NetworkRow::WebdavOff, "[WebDAV off]".to_string()),
+                (NetworkRow::WebdavStatus, "[WebDAV status]".to_string()),
+            ] {
+                app.network.focus = focus;
+                let frame = render_to_text(&app, width, height);
+                assert!(
+                    frame.contains(&label),
+                    "{width}x{height}, {focus:?}:\n{frame}"
+                );
+            }
+            app.network.focus_next(); // Wrap from the final control to the form.
+            let frame = render_to_text(&app, width, height);
+            assert!(frame.contains("Network name"), "{frame}");
+        }
+    }
+
+    /// A tiny TX rate beside a large RX one is still activity, not idle: the
+    /// shared ruler lifts any nonzero sample to the smallest visible bar.
+    /// Before that floor, a few bytes a second against a large receive stream
+    /// rounded to zero and the TX graph looked like a link that had nothing to
+    /// say.
+    #[test]
+    fn a_tiny_tx_rate_is_not_painted_as_an_idle_direction() {
+        let mut app = App {
+            lang: Lang::En,
+            ..App::default()
+        };
+        app.traffic.rx_window.extend([800u64]);
+        app.traffic.tx_window.extend([1u64]);
+
+        let width = 120u16;
+        let buffer = render_buffer(&app, width, 30).expect("a frame");
+        let theme = app.theme();
+        let tx_head = (0..width)
+            .find(|x| buffer[(*x, 0)].symbol() == "↑")
+            .expect("the bar carries a TX head");
+        let tx_bars: Vec<u16> = (tx_head + 1..width)
+            .filter(|x| buffer[(*x, 0)].symbol() == "▁")
+            .collect();
+        assert!(
+            !tx_bars.is_empty(),
+            "a nonzero TX rate painted no bar: {:?}",
+            (tx_head + 1..width)
+                .map(|x| buffer[(x, 0)].symbol())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            tx_bars.iter().any(|x| buffer[(*x, 0)].fg == theme.focus),
+            "the TX bar is not in the TX colour"
+        );
+    }
+
     /// A quiet link is a shape, not a hole: with nothing in the windows the
-    /// graphs draw their zero line — the lowest block — where the stock symbol
-    /// set would leave the strip blank, and every cell of the unit stands on
-    /// the bar's own ground rather than on the console's.
+    /// graphs draw their zero line — the baseline mark — where the stock
+    /// symbol set would leave the strip blank, and every cell of the unit
+    /// stands on the bar's own ground rather than on the console's.
     #[test]
     fn an_idle_traffic_unit_draws_a_zero_line_on_its_ground() {
         let mut app = App {
@@ -1401,7 +1476,7 @@ mod tests {
         }
         // Both halves carry the zero line, each in its own colour.
         let zeros: Vec<u16> = (start..width)
-            .filter(|x| buffer[(*x, 0)].symbol() == "▁")
+            .filter(|x| buffer[(*x, 0)].symbol() == "_")
             .collect();
         assert!(zeros.len() >= 4, "the zero line is missing: {zeros:?}");
         assert!(

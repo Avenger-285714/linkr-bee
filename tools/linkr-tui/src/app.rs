@@ -2941,7 +2941,7 @@ impl App {
                 self.diagnostics.loading = true;
                 self.diagnostics.error = None;
             }
-            Query::Uart | Query::Wifi | Query::WifiScan => {
+            Query::Uart | Query::Wifi | Query::WifiScan | Query::Webdav => {
                 self.network.loading = true;
                 self.network.error = None;
             }
@@ -2986,6 +2986,22 @@ impl App {
         self.send_accessory(&command, Query::Wifi)
     }
 
+    /// Turn WebDAV log upload on at a nonempty `url`.
+    ///
+    /// The firmware decides whether the feature exists at all; a board built
+    /// without it answers the command with an error, which is shown where it
+    /// happened instead of being hidden behind a disabled control.
+    pub fn set_webdav(&mut self, url: &str) -> Result<(), String> {
+        let command = accessory::webdav_command("on", url)?;
+        self.send_accessory(&command, Query::Webdav)
+    }
+
+    /// Disable upload only when the caller explicitly asks to do so.
+    pub fn disable_webdav(&mut self) -> Result<(), String> {
+        let command = accessory::webdav_command("off", "")?;
+        self.send_accessory(&command, Query::Webdav)
+    }
+
     /// Send one management command the caller has already built, and wait for
     /// the read that confirms it.
     ///
@@ -2996,6 +3012,7 @@ impl App {
         let query = match command.split([' ', '=']).next().unwrap_or("").as_bytes() {
             b"@u" => Query::Uart,
             b"@w" => Query::Wifi,
+            b"@d" => Query::Webdav,
             _ => return Err(self.strings().net_bad_command.to_string()),
         };
         self.send_accessory(command, query)
@@ -3235,6 +3252,14 @@ impl App {
                 } else {
                     self.network.scan_results = scan_results(&reply.lines);
                     self.network.settle_focus();
+                }
+            }
+            // `@d?` is a status: where the bridge uploads its logs, or off.
+            // A board built without WebDAV answers with an error instead, and
+            // the refusal path above puts that error on the same row.
+            Query::Webdav => {
+                if let Some(status) = accessory::parse_webdav_status(&text) {
+                    self.network.webdav = Some(status);
                 }
             }
             // `@s?` is the only place the bridge reports its LAN access
@@ -3597,7 +3622,9 @@ impl App {
     fn stop_waiting(&mut self, query: Query) {
         match query {
             Query::Diagnostics => self.diagnostics.loading = false,
-            Query::Uart | Query::Wifi | Query::WifiScan => self.network.loading = false,
+            Query::Uart | Query::Wifi | Query::WifiScan | Query::Webdav => {
+                self.network.loading = false
+            }
             Query::Lan => self.lan_status.loading = false,
         }
     }
@@ -6130,6 +6157,46 @@ mod tests {
             app.waiting_on_device(),
             "and the read that confirms it is out"
         );
+    }
+
+    #[test]
+    fn invalid_webdav_cli_requests_leave_existing_upload_configuration_alone() {
+        let (mut app, wire) = connected_over_ble(Lang::En);
+        let current = accessory::WebdavStatus {
+            state: "on".to_string(),
+            url: "http://host/existing/".to_string(),
+        };
+        app.network.webdav = Some(current.clone());
+        for (url, off) in [
+            ("", false),
+            (" \t ", false),
+            ("https://host/new/", false),
+            ("http://host/new/", true),
+        ] {
+            let requests = crate::cli::Requests {
+                webdav: Some(url.to_string()),
+                webdav_off: off,
+                ..Default::default()
+            };
+            assert_eq!(
+                crate::cli::run_requests(
+                    &mut app,
+                    &requests,
+                    crate::cli::Format::Json,
+                    Duration::from_millis(100),
+                ),
+                1
+            );
+            assert_eq!(app.network.webdav.as_ref(), Some(&current));
+        }
+        assert!(
+            crate::transport::testing::asked_frames(&wire)
+                .iter()
+                .all(|frame| !frame[crate::protocol::MGMT_HEADER_SIZE..].starts_with(b"@d")),
+            "an invalid enable request must never send a write or disable"
+        );
+        app.disable_webdav().expect("explicit disable");
+        assert!(asked_includes(&wire, b"@d off"));
     }
 
     /// The command among the frames that went out, counted rather than merely

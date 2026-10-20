@@ -1,6 +1,6 @@
 //! Accessory management (`web/accessory_control.js`).
 //!
-//! These commands configure Linkr Bee itself (UART, WiFi) over the
+//! These commands configure Linkr Bee itself (UART, WiFi, WebDAV) over the
 //! encrypted Bluetooth LE management channel. They never touch the target
 //! UART, so they cannot be confused with terminal input. Builders and parsers
 //! are pure so the tool layer, the panel and the tests share one definition of
@@ -19,6 +19,7 @@ impl AccessoryLimits {
     pub const FLOW: [&str; 2] = ["none", "rtscts"];
     pub const SSID_MAX: usize = 32;
     pub const PASSWORD_MAX: usize = 64;
+    pub const WEBDAV_URL_MAX: usize = 256;
 }
 
 pub const DIAGNOSTICS_COMMAND: &str = "@i?";
@@ -28,6 +29,7 @@ pub const WIFI_QUERY_COMMAND: &str = "@w?";
 /// acceptance, a line per network, and `@scan done` (or `@scan error`) at the
 /// end; see [`crate::device::Query::WifiScan`].
 pub const WIFI_SCAN_COMMAND: &str = "@w scan";
+pub const WEBDAV_QUERY_COMMAND: &str = "@d?";
 
 /// `@s?` — the WebSocket/LAN settings, and the only place the bridge reports
 /// its LAN access token. `@i?` deliberately omits it, so this is the one
@@ -160,14 +162,86 @@ pub fn wifi_command(action: &str, ssid: &str, password: &str) -> Result<String, 
     Ok(format!("@w={ssid},{password}"))
 }
 
+/// Build `@d=<url>` or `@d off`.
+///
+/// The URL is for the bridge's own log uploader, not for the terminal.
+/// Anonymous HTTP is the firmware's current contract (`src/wifi.c`).
+/// Reject unsupported destinations before sending a configuration change.
+pub fn webdav_command(action: &str, url: &str) -> Result<String, String> {
+    let mode = action.to_ascii_lowercase();
+    if mode == "off" {
+        return Ok("@d off".to_string());
+    }
+    if mode != "on" {
+        return Err("action must be on or off".to_string());
+    }
+    let target = url.trim();
+    if target.is_empty() {
+        return Err("url is required when enabling WebDAV upload".to_string());
+    }
+    if target.len() > AccessoryLimits::WEBDAV_URL_MAX {
+        return Err(format!(
+            "url must be at most {} UTF-8 bytes",
+            AccessoryLimits::WEBDAV_URL_MAX
+        ));
+    }
+    let rest = target
+        .strip_prefix("http://")
+        .ok_or("this firmware supports anonymous http:// upload URLs only")?;
+    if target.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("url must not contain whitespace or control characters".to_string());
+    }
+    // Commas delimit the management command's legacy credential fields.
+    if target.contains([',', '?', '#']) {
+        return Err("url must not contain commas, a query or a fragment".to_string());
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    if host.is_empty()
+        || host.len() >= 64
+        || host.starts_with('.')
+        || host.ends_with(['.', '-'])
+        || !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    {
+        return Err("url needs a hostname or IPv4 address (no credentials or IPv6)".to_string());
+    }
+    if let Some(port) = port {
+        if port.is_empty()
+            || !port.bytes().all(|b| b.is_ascii_digit())
+            || !matches!(port.parse::<u16>(), Ok(1..=u16::MAX))
+        {
+            return Err("url port must be between 1 and 65535".to_string());
+        }
+    }
+    Ok(format!("@d={target}"))
+}
+
 /// The WiFi password travels in the command, so anything shown to the user or
-/// returned to the model is redacted.
+/// returned to the model is redacted. A WebDAV URL may embed credentials too.
 pub fn redact_command(command: &str) -> String {
     if let Some(rest) = command.strip_prefix("@w=") {
         return match rest.find(',') {
             Some(comma) => format!("@w={},<redacted>", &rest[..comma]),
             None => command.to_string(),
         };
+    }
+    if let Some(rest) = command.strip_prefix("@d=") {
+        // `@d=<scheme>://<creds>@<host>…` -> credentials become `<redacted>`.
+        if let Some(scheme_end) = rest.find("://") {
+            let after_scheme = &rest[scheme_end + 3..];
+            if let Some(at) = after_scheme.find('@') {
+                let (creds, tail) = after_scheme.split_at(at);
+                if !creds.is_empty() && !creds.contains('/') {
+                    return format!("@d={}://<redacted>{tail}", &rest[..scheme_end]);
+                }
+            }
+        }
+        return command.to_string();
     }
     command.to_string()
 }
@@ -474,6 +548,39 @@ pub fn wifi_error_code(line: &str) -> Option<i64> {
 
 /// `OK wifi=connected,ssid=MyNet,ip=192.168.1.5` or `OK wifi off`. The address
 /// is taken from the last `,ip=` because an SSID may itself contain a comma.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebdavStatus {
+    pub state: String,
+    pub url: String,
+}
+
+/// `OK webdav=on,url=http://host/dav/` or `OK webdav off`. Everything after
+/// `url=` is the target, so a URL containing a comma or a query string
+/// survives the parse.
+pub fn parse_webdav_status(text: &str) -> Option<WebdavStatus> {
+    let line = text.lines().find(|l| {
+        let lower = l.to_ascii_lowercase();
+        lower.contains("webdav=") || lower.contains("webdav ")
+    })?;
+    let lower = line.to_ascii_lowercase();
+    if contains_word(&lower, "webdav off") {
+        return Some(WebdavStatus {
+            state: "off".to_string(),
+            url: String::new(),
+        });
+    }
+    let idx = lower.find("webdav=")?;
+    let payload = &line[idx + 7..];
+    let (state, url) = match payload.find(",url=") {
+        Some(i) => (&payload[..i], payload[i + 5..].trim()),
+        None => (payload, ""),
+    };
+    Some(WebdavStatus {
+        state: state.to_ascii_lowercase(),
+        url: url.to_string(),
+    })
+}
+
 pub fn parse_wifi_status(text: &str) -> Option<WifiStatus> {
     let line = text.lines().find(|l| {
         let lower = l.to_ascii_lowercase();
@@ -606,6 +713,24 @@ pub fn accessory_change_summary(command: &str, zh: bool) -> String {
             "Disconnect WiFi and clear the current configuration".to_string()
         };
     }
+    if let Some(url) = text.strip_prefix("@d=") {
+        let url = redact_command(command)
+            .strip_prefix("@d=")
+            .unwrap_or(url)
+            .to_string();
+        return if zh {
+            format!("启用日志上传到 {url}")
+        } else {
+            format!("Enable log upload to {url}")
+        };
+    }
+    if text == "@d off" {
+        return if zh {
+            "关闭 WebDAV 日志上传".to_string()
+        } else {
+            "Disable WebDAV log upload".to_string()
+        };
+    }
     text.to_string()
 }
 
@@ -664,6 +789,46 @@ mod tests {
         // The password is never shown.
         assert_eq!(redact_command("@w=MyNet,pw"), "@w=MyNet,<redacted>");
         assert_eq!(redact_command("@w=MyNet"), "@w=MyNet");
+    }
+
+    #[test]
+    fn webdav_commands_and_url_credential_redaction() {
+        assert_eq!(
+            webdav_command("on", "http://host:8080/dav/").unwrap(),
+            "@d=http://host:8080/dav/"
+        );
+        assert_eq!(webdav_command("off", "").unwrap(), "@d off");
+        assert!(webdav_command("on", "ftp://host").is_err());
+        assert!(webdav_command("on", "https://host/dav/ with space").is_err());
+        assert_eq!(
+            redact_command("@d=https://user:pw@host/dav/"),
+            "@d=https://<redacted>@host/dav/"
+        );
+    }
+
+    #[test]
+    fn webdav_rejects_destinations_the_firmware_cannot_store() {
+        for url in [
+            "",
+            " \t ",
+            "https://host/dav/",
+            "http://user:pw@host/dav/",
+            "http://[::1]/dav/",
+            "http://host/dav/?q=1",
+            "http://host/dav/#part",
+            "http://host/dav,other/",
+            "http://host/with space",
+            "http:///dav/",
+            "http://host:0/dav/",
+            "http://host:65536/dav/",
+            "http://host:not-a-port/dav/",
+        ] {
+            assert!(webdav_command("on", url).is_err(), "accepted {url:?}");
+        }
+        let too_long = format!("http://host/{}", "中".repeat(85));
+        assert!(too_long.chars().count() < AccessoryLimits::WEBDAV_URL_MAX);
+        assert!(webdav_command("on", &too_long).is_err());
+        assert!(webdav_command("on", "http://192.168.1.2:65535/logs/").is_ok());
     }
 
     #[test]
@@ -813,6 +978,28 @@ mod tests {
             accessory_change_summary("@w off", true),
             "断开 WiFi 并清除当前配置"
         );
+        assert_eq!(
+            accessory_change_summary("@d=https://h/d/", false),
+            "Enable log upload to https://h/d/"
+        );
+        assert_eq!(
+            accessory_change_summary("@d=https://user:pw@h/d/", false),
+            "Enable log upload to https://<redacted>@h/d/"
+        );
+        assert_eq!(
+            accessory_change_summary("@d off", true),
+            "关闭 WebDAV 日志上传"
+        );
+    }
+
+    #[test]
+    fn webdav_status_parsing_keeps_the_whole_url() {
+        let s = parse_webdav_status("OK webdav=on,url=https://host/dav/?a=1").unwrap();
+        assert_eq!(s.state, "on");
+        assert_eq!(s.url, "https://host/dav/?a=1");
+        let off = parse_webdav_status("OK webdav off").unwrap();
+        assert_eq!(off.state, "off");
+        assert_eq!(off.url, "");
     }
 }
 
