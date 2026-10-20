@@ -71,44 +71,85 @@ pub fn restrict(_path: &Path) -> std::io::Result<()> {
 /// has lost its history. The parent directory is created first, because the
 /// stores that use this are the first thing a fresh machine writes.
 ///
-/// The temp name carries the writing process's id, because two `bee`
-/// instances on one bench are normal and a fixed `.tmp` name is a file they
-/// would take turns truncating — one instance's rename would then move the
-/// other's half-written copy into place. A name that is somehow taken is
-/// retried under the next one, and the temp is removed rather than left behind
-/// holding a secret.
+/// Create a uniquely named temp exclusively so concurrent writers cannot
+/// truncate each other's data. Only name collisions are retried, within a
+/// fixed bound; permanent filesystem errors are returned immediately.
 pub fn write_private_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
     }
-    let mut tmp = path.to_path_buf();
-    let mut stamp = std::process::id();
-    loop {
-        tmp.set_extension(format!("tmp{stamp:08x}"));
-        if write_private(&tmp, bytes).is_ok() && std::fs::rename(&tmp, path).is_ok() {
-            // Again after the rename, not before: a file that was already
-            // there keeps whatever mode it had until this moment, and this one
-            // holds a secret.
-            let _ = restrict(path);
-            return Ok(());
+    for _ in 0..16 {
+        let tmp = path.with_extension(format!("tmp{}", uuid::Uuid::new_v4().simple()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
-        let _ = std::fs::remove_file(&tmp);
-        // A collision on the temp name is the only recoverable failure; a full
-        // disk or a read-only directory is reported rather than spun on.
-        if stamp > u32::MAX - 1024 {
-            return Err(std::io::Error::other(format!(
-                "could not write {}: every temporary name was taken or the \
-                 directory refused the write",
-                path.display()
-            )));
+        let mut file = match options.open(&tmp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let result = (|| {
+            file.write_all(bytes)?;
+            file.flush()?;
+            // Windows must release the temporary file before renaming it.
+            drop(file);
+            std::fs::rename(&tmp, path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
         }
-        stamp += 1;
+        return result;
     }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a temporary file after 16 attempts",
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_save_reports_permanent_errors_and_removes_its_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("linkr-save-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        let blocker = dir.join("not-a-directory");
+        std::fs::write(&blocker, b"keep").expect("blocker");
+        assert!(write_private_atomically(&blocker.join("store.json"), b"{}").is_err());
+        let destination = dir.join("existing-directory");
+        std::fs::create_dir(&destination).expect("destination directory");
+        assert!(write_private_atomically(&destination, b"{}").is_err());
+        assert_eq!(std::fs::read_dir(&dir).expect("list").count(), 2);
+        assert_eq!(std::fs::read(&blocker).expect("read blocker"), b"keep");
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn atomic_save_replaces_the_store_and_leaves_no_temporary_files() {
+        let dir = std::env::temp_dir().join(format!("linkr-save-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("store.json");
+        write_private_atomically(&path, b"old").expect("initial save");
+        write_private_atomically(&path, b"new").expect("replacement");
+        assert_eq!(std::fs::read(&path).expect("read store"), b"new");
+        assert_eq!(std::fs::read_dir(&dir).expect("list").count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
 
     /// The mode is the mechanism: a file made for a secret is made
     /// owner-only, an appended-to one is made the same way, and a file that
